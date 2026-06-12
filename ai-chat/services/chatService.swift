@@ -20,19 +20,19 @@ struct ChatServiceConfiguration: Sendable, Equatable {
     let requiresAPIKey: Bool
 
     nonisolated init(
-        baseURL: URL = ChatServiceConfiguration.urlValue("AI_CHAT_BASE_URL") ?? URL(string: "https://api.openai.com/v1")!,
-        apiKey: String? = ChatServiceConfiguration.value("AI_CHAT_API_KEY") ?? ChatServiceConfiguration.value("OPENAI_API_KEY"),
-        model: String = ChatServiceConfiguration.value("AI_CHAT_MODEL") ?? "gpt-4.1-mini",
-        systemPrompt: String? = ChatServiceConfiguration.value("AI_CHAT_SYSTEM_PROMPT") ?? "You are a helpful assistant.",
-        temperature: Double = ChatServiceConfiguration.doubleValue("AI_CHAT_TEMPERATURE") ?? 0.7,
-        requiresAPIKey: Bool? = ChatServiceConfiguration.boolValue("AI_CHAT_REQUIRES_API_KEY")
+        baseURL: URL = URL(string: "https://api.openai.com/v1")!,
+        apiKey: String? = nil,
+        model: String = "gpt-4.1-mini",
+        systemPrompt: String? = "You are a helpful assistant.",
+        temperature: Double = 0.7,
+        requiresAPIKey: Bool = true
     ) {
         self.baseURL = baseURL
         self.apiKey = apiKey?.nilIfBlank
         self.model = model
         self.systemPrompt = systemPrompt?.nilIfBlank
         self.temperature = temperature
-        self.requiresAPIKey = requiresAPIKey ?? Self.requiresAPIKey(for: baseURL)
+        self.requiresAPIKey = requiresAPIKey
     }
 }
 
@@ -111,7 +111,7 @@ enum ChatServiceError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .missingAPIKey:
-            "Missing API key. Set AI_CHAT_API_KEY or OPENAI_API_KEY before sending messages."
+            "Missing API key. Provide apiKey in ChatServiceConfiguration before sending messages."
         case .invalidResponse:
             "The AI service returned an invalid response."
         case .emptyResponse:
@@ -156,44 +156,6 @@ private struct ChatCompletionErrorResponse: Decodable {
 private extension ChatServiceConfiguration {
     nonisolated var chatCompletionsURL: URL {
         baseURL.appending(path: "chat/completions")
-    }
-
-    nonisolated static func value(_ key: String) -> String? {
-        if let value = ProcessInfo.processInfo.environment[key]?.nilIfBlank {
-            return value
-        }
-
-        if let value = Bundle.main.object(forInfoDictionaryKey: key) as? String {
-            return value.nilIfBlank
-        }
-
-        return UserDefaults.standard.string(forKey: key)?.nilIfBlank
-    }
-
-    nonisolated static func urlValue(_ key: String) -> URL? {
-        value(key).flatMap(URL.init(string:))
-    }
-
-    nonisolated static func doubleValue(_ key: String) -> Double? {
-        value(key).flatMap(Double.init)
-    }
-
-    nonisolated static func boolValue(_ key: String) -> Bool? {
-        guard let value = value(key)?.lowercased() else { return nil }
-
-        switch value {
-        case "1", "true", "yes", "y":
-            return true
-        case "0", "false", "no", "n":
-            return false
-        default:
-            return nil
-        }
-    }
-
-    nonisolated static func requiresAPIKey(for url: URL) -> Bool {
-        guard let host = url.host(percentEncoded: false)?.lowercased() else { return true }
-        return host != "localhost" && host != "127.0.0.1" && host != "::1"
     }
 }
 
