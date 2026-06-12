@@ -1,0 +1,12 @@
+.DS_Store
+
+# Xcode local state
+xcuserdata/
+*.xcuserstate
+
+# Build output
+build/
+DerivedData/
+
+# Swift Package Manager local metadata
+.swiftpm/
