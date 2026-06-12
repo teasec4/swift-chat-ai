@@ -19,7 +19,7 @@ final class ChatViewModel {
 
     init(
         messages: [ChatMessage] = [],
-        chatService: any ChatServing = OpenAICompatibleChatService(),
+        chatService: any ChatServing = ChatService(),
         maxContextMessages: Int = 12
     ) {
         self.messages = messages

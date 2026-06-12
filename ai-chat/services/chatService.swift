@@ -11,94 +11,55 @@ protocol ChatServing: Sendable {
     nonisolated func response(for messages: [ChatMessage]) async throws -> String
 }
 
-struct ChatServiceConfiguration: Sendable, Equatable {
-    let baseURL: URL
-    let apiKey: String?
-    let model: String
-    let systemPrompt: String?
-    let temperature: Double
-    let requiresAPIKey: Bool
+struct ChatService: ChatServing {
+    private let apiKey = ""
+    private let model = "gpt-4.1-mini"
+    private let endpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
+    private let systemPrompt = "You are a helpful assistant."
+    private let temperature = 0.7
 
-    nonisolated init(
-        baseURL: URL = URL(string: "https://api.openai.com/v1")!,
-        apiKey: String? = nil,
-        model: String = "gpt-4.1-mini",
-        systemPrompt: String? = "You are a helpful assistant.",
-        temperature: Double = 0.7,
-        requiresAPIKey: Bool = true
-    ) {
-        self.baseURL = baseURL
-        self.apiKey = apiKey?.nilIfBlank
-        self.model = model
-        self.systemPrompt = systemPrompt?.nilIfBlank
-        self.temperature = temperature
-        self.requiresAPIKey = requiresAPIKey
-    }
-}
-
-struct OpenAICompatibleChatService: ChatServing {
-    let configuration: ChatServiceConfiguration
-
-    nonisolated init(configuration: ChatServiceConfiguration = ChatServiceConfiguration()) {
-        self.configuration = configuration
-    }
+    nonisolated init() {}
 
     nonisolated func response(for messages: [ChatMessage]) async throws -> String {
-        if configuration.requiresAPIKey && configuration.apiKey == nil {
+        guard apiKey.isEmpty == false else {
             throw ChatServiceError.missingAPIKey
         }
 
-        var request = URLRequest(url: configuration.chatCompletionsURL)
+        var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = 60
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        if let apiKey = configuration.apiKey {
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        }
-
-        let payload = ChatCompletionRequest(
-            model: configuration.model,
-            messages: requestMessages(from: messages),
-            temperature: configuration.temperature
-        )
-
-        request.httpBody = try JSONEncoder().encode(payload)
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONEncoder().encode(makeRequestBody(from: messages))
 
         let (data, response) = try await URLSession.shared.data(for: request)
-
         guard let httpResponse = response as? HTTPURLResponse else {
             throw ChatServiceError.invalidResponse
         }
 
         guard (200..<300).contains(httpResponse.statusCode) else {
-            throw ChatServiceError.httpFailure(
-                statusCode: httpResponse.statusCode,
-                message: Self.errorMessage(from: data)
-            )
+            throw ChatServiceError.httpFailure(statusCode: httpResponse.statusCode)
         }
 
-        let decodedResponse = try JSONDecoder().decode(ChatCompletionResponse.self, from: data)
-        guard let content = decodedResponse.choices.first?.message.content.nilIfBlank else {
+        let chatResponse = try JSONDecoder().decode(ChatResponse.self, from: data)
+        guard let content = chatResponse.choices.first?.message.content.trimmedNonEmpty else {
             throw ChatServiceError.emptyResponse
         }
 
         return content
     }
 
-    private func requestMessages(from messages: [ChatMessage]) -> [ChatCompletionMessage] {
-        var requestMessages: [ChatCompletionMessage] = []
-
-        if let systemPrompt = configuration.systemPrompt {
-            requestMessages.append(ChatCompletionMessage(role: "system", content: systemPrompt))
-        }
-
-        requestMessages.append(contentsOf: messages.map {
-            ChatCompletionMessage(role: $0.role.rawValue, content: $0.content)
-        })
-
-        return requestMessages
+    nonisolated private func makeRequestBody(from messages: [ChatMessage]) -> ChatRequest {
+        ChatRequest(
+            model: model,
+            messages: [
+                ChatRequest.Message(role: "system", content: systemPrompt)
+            ] + messages.map {
+                ChatRequest.Message(role: $0.role.rawValue, content: $0.content)
+            },
+            temperature: temperature
+        )
     }
 }
 
@@ -106,71 +67,43 @@ enum ChatServiceError: LocalizedError, Equatable {
     case missingAPIKey
     case invalidResponse
     case emptyResponse
-    case httpFailure(statusCode: Int, message: String?)
+    case httpFailure(statusCode: Int)
 
     var errorDescription: String? {
         switch self {
         case .missingAPIKey:
-            "Missing API key. Provide apiKey in ChatServiceConfiguration before sending messages."
+            "Add an API key in ChatService.swift before sending messages."
         case .invalidResponse:
             "The AI service returned an invalid response."
         case .emptyResponse:
             "The AI service returned an empty answer."
-        case let .httpFailure(statusCode, message):
-            if let message {
-                "The AI service returned \(statusCode): \(message)"
-            } else {
-                "The AI service returned HTTP \(statusCode)."
-            }
+        case let .httpFailure(statusCode):
+            "The AI service returned HTTP \(statusCode)."
         }
     }
 }
 
-private struct ChatCompletionRequest: Encodable, Sendable {
+nonisolated private struct ChatRequest: Encodable, Sendable {
     let model: String
-    let messages: [ChatCompletionMessage]
+    let messages: [Message]
     let temperature: Double
+
+    nonisolated struct Message: Codable, Sendable {
+        let role: String
+        let content: String
+    }
 }
 
-private struct ChatCompletionMessage: Codable, Sendable {
-    let role: String
-    let content: String
-}
-
-private struct ChatCompletionResponse: Decodable, Sendable {
+nonisolated private struct ChatResponse: Decodable, Sendable {
     let choices: [Choice]
 
-    struct Choice: Decodable, Sendable {
-        let message: ChatCompletionMessage
-    }
-}
-
-private struct ChatCompletionErrorResponse: Decodable {
-    let error: APIError?
-
-    struct APIError: Decodable {
-        let message: String?
-    }
-}
-
-private extension ChatServiceConfiguration {
-    nonisolated var chatCompletionsURL: URL {
-        baseURL.appending(path: "chat/completions")
-    }
-}
-
-private extension OpenAICompatibleChatService {
-    nonisolated static func errorMessage(from data: Data) -> String? {
-        if let response = try? JSONDecoder().decode(ChatCompletionErrorResponse.self, from: data) {
-            return response.error?.message?.nilIfBlank
-        }
-
-        return String(data: data, encoding: .utf8)?.nilIfBlank
+    nonisolated struct Choice: Decodable, Sendable {
+        let message: ChatRequest.Message
     }
 }
 
 private extension String {
-    nonisolated var nilIfBlank: String? {
+    nonisolated var trimmedNonEmpty: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }

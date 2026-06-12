@@ -88,13 +88,8 @@ final class ai_chatTests: XCTestCase {
         XCTAssertEqual(sentMessages.map(\.content), ["First question", "Second question"])
     }
 
-    func testOpenAICompatibleServiceRequiresAPIKeyForRemoteBaseURL() async {
-        let service = OpenAICompatibleChatService(
-            configuration: ChatServiceConfiguration(
-                apiKey: nil,
-                requiresAPIKey: true
-            )
-        )
+    func testChatServiceRequiresHardcodedAPIKey() async {
+        let service = ChatService()
 
         do {
             _ = try await service.response(for: [ChatMessage(content: "Hello", role: .user)])
