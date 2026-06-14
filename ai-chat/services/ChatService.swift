@@ -7,10 +7,6 @@
 
 import Foundation
 
-protocol ChatServing: Sendable {
-    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> AssistantResponse
-}
-
 struct ChatService: ChatServing {
     private let apiKey: String
     private let model = "deepseek-v4-flash"
