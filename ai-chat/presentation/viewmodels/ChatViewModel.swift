@@ -19,21 +19,36 @@ final class ChatViewModel {
 
     @ObservationIgnored private let chatStore: any ChatStoring
     @ObservationIgnored private let chatService: any ChatServing
+    @ObservationIgnored private let networkAccessAuthorizer: any NetworkAccessAuthorizing
     @ObservationIgnored private let maxContextMessages: Int
 
     init(
         chatStore: any ChatStoring,
         chatService: any ChatServing,
+        networkAccessAuthorizer: any NetworkAccessAuthorizing,
         maxContextMessages: Int = 12
     ) {
         self.chatStore = chatStore
         self.chatService = chatService
+        self.networkAccessAuthorizer = networkAccessAuthorizer
         self.maxContextMessages = maxContextMessages
     }
 
     var selectedSession: ChatSession? {
         guard let selectedSessionID else { return nil }
         return sessions.first { $0.id == selectedSessionID }
+    }
+
+    var hasApprovedNetworkAccess: Bool {
+        networkAccessAuthorizer.hasUserApproval
+    }
+
+    func approveNetworkAccess() {
+        networkAccessAuthorizer.approveNetworkAccess()
+    }
+
+    func prepareForNetworkedChat() async throws {
+        try await networkAccessAuthorizer.prepareForNetworkUse()
     }
 
     func load() async {

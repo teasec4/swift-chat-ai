@@ -106,6 +106,7 @@ final class AIChatTests: XCTestCase {
         let sut = ChatViewModel(
             chatStore: store,
             chatService: RecordingChatService(recorder: recorder, response: "Four"),
+            networkAccessAuthorizer: StubNetworkAccessAuthorizer(),
             maxContextMessages: 3
         )
 
@@ -395,17 +396,61 @@ final class AIChatTests: XCTestCase {
         XCTAssertEqual(response?.corrections, [])
     }
 
+    func testNetworkedChatApprovalAndPreparationUseAuthorizer() async throws {
+        let authorizer = StubNetworkAccessAuthorizer(hasUserApproval: false)
+        let sut = makeViewModel(networkAccessAuthorizer: authorizer)
+
+        XCTAssertFalse(sut.hasApprovedNetworkAccess)
+
+        sut.approveNetworkAccess()
+        try await sut.prepareForNetworkedChat()
+
+        XCTAssertTrue(sut.hasApprovedNetworkAccess)
+        XCTAssertEqual(authorizer.prepareCallCount, 1)
+    }
+
     private func makeViewModel(
         chatService: any ChatServing = StubChatService(response: "OK")
     ) -> ChatViewModel {
-        makeViewModel(store: InMemoryChatStore(), chatService: chatService)
+        makeViewModel(
+            store: InMemoryChatStore(),
+            chatService: chatService,
+            networkAccessAuthorizer: StubNetworkAccessAuthorizer()
+        )
+    }
+
+    private func makeViewModel(
+        chatService: any ChatServing = StubChatService(response: "OK"),
+        networkAccessAuthorizer: any NetworkAccessAuthorizing
+    ) -> ChatViewModel {
+        makeViewModel(
+            store: InMemoryChatStore(),
+            chatService: chatService,
+            networkAccessAuthorizer: networkAccessAuthorizer
+        )
     }
 
     private func makeViewModel(
         store: any ChatStoring,
         chatService: any ChatServing = StubChatService(response: "OK")
     ) -> ChatViewModel {
-        ChatViewModel(chatStore: store, chatService: chatService)
+        makeViewModel(
+            store: store,
+            chatService: chatService,
+            networkAccessAuthorizer: StubNetworkAccessAuthorizer()
+        )
+    }
+
+    private func makeViewModel(
+        store: any ChatStoring,
+        chatService: any ChatServing = StubChatService(response: "OK"),
+        networkAccessAuthorizer: any NetworkAccessAuthorizing
+    ) -> ChatViewModel {
+        ChatViewModel(
+            chatStore: store,
+            chatService: chatService,
+            networkAccessAuthorizer: networkAccessAuthorizer
+        )
     }
 
     private func makeInMemoryModelContainer() throws -> ModelContainer {
@@ -439,6 +484,31 @@ private struct StubChatService: ChatServing {
 
     nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> AssistantResponse {
         response
+    }
+}
+
+@MainActor
+private final class StubNetworkAccessAuthorizer: NetworkAccessAuthorizing {
+    private(set) var prepareCallCount = 0
+    private var error: Error?
+
+    var hasUserApproval: Bool
+
+    init(hasUserApproval: Bool = true, error: Error? = nil) {
+        self.hasUserApproval = hasUserApproval
+        self.error = error
+    }
+
+    func approveNetworkAccess() {
+        hasUserApproval = true
+    }
+
+    func prepareForNetworkUse() async throws {
+        prepareCallCount += 1
+
+        if let error {
+            throw error
+        }
     }
 }
 

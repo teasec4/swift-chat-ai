@@ -12,6 +12,7 @@ import SwiftData
 struct AppDependencies {
     let chatStore: any ChatStoring
     let chatService: any ChatServing
+    let networkAccessAuthorizer: any NetworkAccessAuthorizing
     let modelContainer: ModelContainer
 
     static func live() throws -> AppDependencies {
@@ -19,6 +20,7 @@ struct AppDependencies {
         return AppDependencies(
             chatStore: SwiftDataChatStore(modelContext: ModelContext(container)),
             chatService: DeepSeekChatService(),
+            networkAccessAuthorizer: NetworkAccessAuthorizer(),
             modelContainer: container
         )
     }
@@ -30,6 +32,7 @@ struct AppDependencies {
         return AppDependencies(
             chatStore: store,
             chatService: PreviewChatService(),
+            networkAccessAuthorizer: PreviewNetworkAccessAuthorizer(),
             modelContainer: container
         )
     }
@@ -64,4 +67,15 @@ private struct PreviewChatService: ChatServing {
     nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> AssistantResponse {
         AssistantResponse(reply: "Preview response")
     }
+}
+
+@MainActor
+private final class PreviewNetworkAccessAuthorizer: NetworkAccessAuthorizing {
+    var hasUserApproval: Bool {
+        true
+    }
+
+    func approveNetworkAccess() {}
+
+    func prepareForNetworkUse() async throws {}
 }
