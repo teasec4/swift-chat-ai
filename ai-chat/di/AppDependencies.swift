@@ -18,7 +18,7 @@ struct AppDependencies {
         let container = try makeModelContainer(isStoredInMemoryOnly: false)
         return AppDependencies(
             chatStore: SwiftDataChatStore(modelContext: ModelContext(container)),
-            chatService: ChatService(),
+            chatService: DeepSeekChatService(),
             modelContainer: container
         )
     }

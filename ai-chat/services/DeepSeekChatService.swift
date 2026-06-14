@@ -1,5 +1,5 @@
 //
-//  ChatService.swift
+//  DeepSeekChatService.swift
 //  ai-chat
 //
 //  Created by Максим Ковалев on 6/11/26.
@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct ChatService: ChatServing {
+struct DeepSeekChatService: ChatServing {
     private let apiKey: String
     private let model = "deepseek-v4-flash"
     private let endpoint = URL(string: "https://api.deepseek.com/v1/chat/completions")!
@@ -91,7 +91,7 @@ enum ChatServiceError: LocalizedError, Equatable {
     }
 }
 
-private extension ChatService {
+private extension DeepSeekChatService {
     nonisolated static func apiKeyFromBundle() -> String {
         if let value = Bundle.main.object(forInfoDictionaryKey: "DEEPSEEK_API_KEY") as? String,
            let apiKey = normalizedAPIKey(value) {
