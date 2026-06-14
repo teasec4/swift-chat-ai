@@ -52,6 +52,7 @@ final class SwiftDataChatStore: ChatStoring {
             content: message.content,
             role: message.role,
             createdAt: message.createdAt,
+            corrections: message.corrections,
             session: session
         )
 

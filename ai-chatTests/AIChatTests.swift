@@ -33,6 +33,24 @@ final class AIChatTests: XCTestCase {
         XCTAssertFalse(sut.isResponding)
     }
 
+    func testSendMessageAppendsAssistantCorrections() async {
+        let correction = MessageCorrection(
+            original: "I very like hiking",
+            corrected: "I really like hiking",
+            type: "grammar",
+            explanation: "Use really before like."
+        )
+        let sut = makeViewModel(
+            chatService: StubChatService(response: "Nice! Where do you usually hike?", corrections: [correction])
+        )
+
+        await sut.load()
+        await sut.sendMessage("I very like hiking")
+
+        XCTAssertEqual(sut.messages.last?.content, "Nice! Where do you usually hike?")
+        XCTAssertEqual(sut.messages.last?.corrections, [correction])
+    }
+
     func testSendMessageIgnoresEmptyContent() async {
         let sut = makeViewModel(chatService: StubChatService(response: "Ignored"))
 
@@ -305,6 +323,30 @@ final class AIChatTests: XCTestCase {
         XCTAssertEqual(messages, [message])
     }
 
+    func testSwiftDataStorePersistsMessageCorrections() throws {
+        let container = try makeInMemoryModelContainer()
+        let sessionStore = SwiftDataChatStore(modelContext: ModelContext(container))
+        let session = try sessionStore.createSession()
+        let correction = MessageCorrection(
+            original: "I am agree",
+            corrected: "I agree",
+            type: "grammar",
+            explanation: "Agree is already a verb."
+        )
+        let message = ChatMessage(
+            content: "Good answer. What else do you think?",
+            role: .assistant,
+            corrections: [correction]
+        )
+
+        try sessionStore.appendMessage(message, to: session.id)
+
+        let reloadedStore = SwiftDataChatStore(modelContext: ModelContext(container))
+        let messages = try reloadedStore.fetchMessages(for: session.id)
+
+        XCTAssertEqual(messages.first?.corrections, [correction])
+    }
+
     func testChatServiceErrorDescriptions() {
         XCTAssertNotNil(ChatServiceError.missingAPIKey.errorDescription)
         XCTAssertNotNil(ChatServiceError.invalidResponse.errorDescription)
@@ -313,6 +355,44 @@ final class AIChatTests: XCTestCase {
             ChatServiceError.httpFailure(statusCode: 429).errorDescription,
             "The AI service returned HTTP 429."
         )
+    }
+
+    func testAssistantResponseDecodesStructuredJSON() {
+        let rawResponse = """
+        {
+          "reply": "Nice! What games do you usually play?",
+          "corrections": [
+            {
+              "original": "I very like games",
+              "corrected": "I really like games",
+              "type": "grammar",
+              "explanation": "Use really before like."
+            }
+          ]
+        }
+        """
+
+        let response = AssistantResponse.make(from: rawResponse)
+
+        XCTAssertEqual(response?.reply, "Nice! What games do you usually play?")
+        XCTAssertEqual(
+            response?.corrections,
+            [
+                MessageCorrection(
+                    original: "I very like games",
+                    corrected: "I really like games",
+                    type: "grammar",
+                    explanation: "Use really before like."
+                )
+            ]
+        )
+    }
+
+    func testAssistantResponseFallsBackToPlainText() {
+        let response = AssistantResponse.make(from: "Sure, let's keep practicing.")
+
+        XCTAssertEqual(response?.reply, "Sure, let's keep practicing.")
+        XCTAssertEqual(response?.corrections, [])
     }
 
     private func makeViewModel(
@@ -351,9 +431,13 @@ final class AIChatTests: XCTestCase {
 }
 
 private struct StubChatService: ChatServing {
-    let response: String
+    let response: AssistantResponse
 
-    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> String {
+    init(response: String, corrections: [MessageCorrection] = []) {
+        self.response = AssistantResponse(reply: response, corrections: corrections)
+    }
+
+    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> AssistantResponse {
         response
     }
 }
@@ -363,15 +447,15 @@ private struct FailingChatService: ChatServing {
         case expected
     }
 
-    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> String {
+    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> AssistantResponse {
         throw Failure.expected
     }
 }
 
 private struct SuspendedChatService: ChatServing {
-    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> String {
+    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> AssistantResponse {
         try await Task.sleep(for: .seconds(30))
-        return "Late response"
+        return AssistantResponse(reply: "Late response")
     }
 }
 
@@ -403,16 +487,16 @@ private struct RecordingChatService: ChatServing {
     let recorder: MessageRecorder
     let response: String
 
-    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> String {
+    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> AssistantResponse {
         await recorder.record(messages, systemPrompt: systemPrompt)
-        return response
+        return AssistantResponse(reply: response)
     }
 }
 
 private struct FailingOnceChatService: ChatServing {
     private let state = FailingOnceState()
 
-    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> String {
+    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> AssistantResponse {
         try await state.response(for: messages)
     }
 
@@ -425,7 +509,7 @@ private actor FailingOnceState {
     private var requestCount = 0
     private var lastMessages: [ChatMessage] = []
 
-    func response(for messages: [ChatMessage]) throws -> String {
+    func response(for messages: [ChatMessage]) throws -> AssistantResponse {
         requestCount += 1
         lastMessages = messages
 
@@ -433,7 +517,7 @@ private actor FailingOnceState {
             throw FailingChatService.Failure.expected
         }
 
-        return "Recovered"
+        return AssistantResponse(reply: "Recovered")
     }
 
     func messagesFromLastRequest() -> [ChatMessage] {

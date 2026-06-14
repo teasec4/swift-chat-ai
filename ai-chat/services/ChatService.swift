@@ -8,7 +8,7 @@
 import Foundation
 
 protocol ChatServing: Sendable {
-    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> String
+    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> AssistantResponse
 }
 
 struct ChatService: ChatServing {
@@ -21,7 +21,7 @@ struct ChatService: ChatServing {
         self.apiKey = apiKey
     }
 
-    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> String {
+    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> AssistantResponse {
         guard apiKey.isEmpty == false else {
             throw ChatServiceError.missingAPIKey
         }
@@ -50,7 +50,11 @@ struct ChatService: ChatServing {
             throw ChatServiceError.emptyResponse
         }
 
-        return content
+        guard let response = AssistantResponse.make(from: content) else {
+            throw ChatServiceError.emptyResponse
+        }
+
+        return response
     }
 
     nonisolated private func makeRequestBody(
@@ -60,11 +64,13 @@ struct ChatService: ChatServing {
         ChatRequest(
             model: model,
             messages: [
-                ChatRequest.Message(role: "system", content: systemPrompt)
+                ChatRequest.Message(role: "system", content: systemPrompt),
+                ChatRequest.Message(role: "system", content: AssistantResponse.responseInstructions)
             ] + messages.map {
                 ChatRequest.Message(role: $0.role.rawValue, content: $0.content)
             },
-            temperature: temperature
+            temperature: temperature,
+            responseFormat: .jsonObject
         )
     }
 }
@@ -123,10 +129,36 @@ nonisolated private struct ChatRequest: Encodable, Sendable {
     let model: String
     let messages: [Message]
     let temperature: Double
+    let responseFormat: ResponseFormat?
 
     nonisolated struct Message: Codable, Sendable {
         let role: String
         let content: String
+    }
+
+    nonisolated struct ResponseFormat: Codable, Sendable {
+        let type: String
+
+        nonisolated static let jsonObject = ResponseFormat(type: "json_object")
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case model
+        case messages
+        case temperature
+        case responseFormat = "response_format"
+    }
+
+    nonisolated init(
+        model: String,
+        messages: [Message],
+        temperature: Double,
+        responseFormat: ResponseFormat? = nil
+    ) {
+        self.model = model
+        self.messages = messages
+        self.temperature = temperature
+        self.responseFormat = responseFormat
     }
 }
 

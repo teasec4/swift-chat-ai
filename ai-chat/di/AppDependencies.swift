@@ -61,7 +61,7 @@ private extension InMemoryChatStore {
 }
 
 private struct PreviewChatService: ChatServing {
-    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> String {
-        "Preview response"
+    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> AssistantResponse {
+        AssistantResponse(reply: "Preview response")
     }
 }

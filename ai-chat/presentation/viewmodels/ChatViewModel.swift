@@ -122,11 +122,15 @@ final class ChatViewModel {
             isResponding = true
             defer { isResponding = false }
 
-            let assistantContent = try await chatService.response(
+            let assistantResponse = try await chatService.response(
                 for: [openingRequest],
                 systemPrompt: systemPrompt
             )
-            let assistantMessage = ChatMessage(content: assistantContent, role: .assistant)
+            let assistantMessage = ChatMessage(
+                content: assistantResponse.reply,
+                role: .assistant,
+                corrections: assistantResponse.corrections
+            )
 
             try chatStore.appendMessage(assistantMessage, to: sessionID)
             try refreshSessions(selecting: selectedSessionID)
@@ -189,11 +193,15 @@ final class ChatViewModel {
             defer { isResponding = false }
 
             let context = try recentContext(for: sessionID)
-            let assistantContent = try await chatService.response(
+            let assistantResponse = try await chatService.response(
                 for: context,
                 systemPrompt: systemPrompt
             )
-            let assistantMessage = ChatMessage(content: assistantContent, role: .assistant)
+            let assistantMessage = ChatMessage(
+                content: assistantResponse.reply,
+                role: .assistant,
+                corrections: assistantResponse.corrections
+            )
 
             try chatStore.appendMessage(assistantMessage, to: sessionID)
             try refreshSessions(selecting: selectedSessionID)

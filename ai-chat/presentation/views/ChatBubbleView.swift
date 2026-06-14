@@ -11,29 +11,48 @@ struct ChatBubbleView: View {
     let message: ChatMessage
 
     var body: some View {
-        HStack(alignment: .bottom) {
-            if message.role == .user {
-                Spacer(minLength: 48)
-            }
-
-            Text(message.content)
-                .font(.body)
-                .foregroundStyle(foregroundStyle)
-                .textSelection(.enabled)
-                .padding(.vertical, 10)
-                .padding(.horizontal, 14)
-                .background(backgroundStyle, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .accessibilityLabel(accessibilityLabel)
-
-            if message.role == .assistant {
-                Spacer(minLength: 48)
-            }
+        switch message.role {
+        case .user:
+            userMessageView
+        case .assistant:
+            assistantMessageView
         }
-        .frame(maxWidth: .infinity, alignment: alignment)
     }
 
-    private var alignment: Alignment {
-        message.role == .user ? .trailing : .leading
+    private var userMessageView: some View {
+        HStack(alignment: .bottom) {
+            Spacer(minLength: 48)
+
+            messageTextBubble
+
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private var assistantMessageView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .bottom) {
+                messageTextBubble
+
+                Spacer(minLength: 48)
+            }
+
+            if message.corrections.isEmpty == false {
+                MessageCorrectionListView(corrections: message.corrections)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var messageTextBubble: some View {
+        Text(message.content)
+            .font(.body)
+            .foregroundStyle(foregroundStyle)
+            .textSelection(.enabled)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .background(backgroundStyle, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .accessibilityLabel(accessibilityLabel)
     }
 
     private var backgroundStyle: Color {

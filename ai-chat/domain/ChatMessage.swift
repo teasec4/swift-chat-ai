@@ -12,17 +12,20 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
     let content: String
     let role: Role
     let createdAt: Date
+    let corrections: [MessageCorrection]
 
     nonisolated init(
         id: UUID = UUID(),
         content: String,
         role: Role,
-        createdAt: Date = .now
+        createdAt: Date = .now,
+        corrections: [MessageCorrection] = []
     ) {
         self.id = id
         self.content = content
         self.role = role
         self.createdAt = createdAt
+        self.corrections = corrections
     }
 
     enum Role: String, Hashable, Sendable {
