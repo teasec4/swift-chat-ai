@@ -1,5 +1,5 @@
 //
-//  chatMessage.swift
+//  ChatMessage.swift
 //  ai-chat
 //
 //  Created by Максим Ковалев on 6/11/26.

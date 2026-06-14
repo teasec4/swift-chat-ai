@@ -10,3 +10,7 @@ DerivedData/
 
 # Swift Package Manager local metadata
 .swiftpm/
+
+# Local secrets
+Config/Secrets.xcconfig
+ai-chat/Secrets.plist

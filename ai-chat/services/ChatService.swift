@@ -1,5 +1,5 @@
 //
-//  chatService.swift
+//  ChatService.swift
 //  ai-chat
 //
 //  Created by Максим Ковалев on 6/11/26.
@@ -8,19 +8,20 @@
 import Foundation
 
 protocol ChatServing: Sendable {
-    nonisolated func response(for messages: [ChatMessage]) async throws -> String
+    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> String
 }
 
 struct ChatService: ChatServing {
-    private let apiKey = ""
-    private let model = "gpt-4.1-mini"
-    private let endpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
-    private let systemPrompt = "You are a helpful assistant."
+    private let apiKey: String
+    private let model = "deepseek-v4-flash"
+    private let endpoint = URL(string: "https://api.deepseek.com/v1/chat/completions")!
     private let temperature = 0.7
 
-    nonisolated init() {}
+    nonisolated init(apiKey: String = Self.apiKeyFromBundle()) {
+        self.apiKey = apiKey
+    }
 
-    nonisolated func response(for messages: [ChatMessage]) async throws -> String {
+    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> String {
         guard apiKey.isEmpty == false else {
             throw ChatServiceError.missingAPIKey
         }
@@ -31,7 +32,9 @@ struct ChatService: ChatServing {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONEncoder().encode(makeRequestBody(from: messages))
+        request.httpBody = try JSONEncoder().encode(
+            makeRequestBody(from: messages, systemPrompt: systemPrompt)
+        )
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -50,7 +53,10 @@ struct ChatService: ChatServing {
         return content
     }
 
-    nonisolated private func makeRequestBody(from messages: [ChatMessage]) -> ChatRequest {
+    nonisolated private func makeRequestBody(
+        from messages: [ChatMessage],
+        systemPrompt: String
+    ) -> ChatRequest {
         ChatRequest(
             model: model,
             messages: [
@@ -72,7 +78,7 @@ enum ChatServiceError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .missingAPIKey:
-            "Add an API key in ChatService.swift before sending messages."
+            "Add DEEPSEEK_API_KEY in Secrets.plist before sending messages."
         case .invalidResponse:
             "The AI service returned an invalid response."
         case .emptyResponse:
@@ -80,6 +86,36 @@ enum ChatServiceError: LocalizedError, Equatable {
         case let .httpFailure(statusCode):
             "The AI service returned HTTP \(statusCode)."
         }
+    }
+}
+
+private extension ChatService {
+    nonisolated static func apiKeyFromBundle() -> String {
+        if let value = Bundle.main.object(forInfoDictionaryKey: "DEEPSEEK_API_KEY") as? String,
+           let apiKey = normalizedAPIKey(value) {
+            return apiKey
+        }
+
+        guard
+            let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
+            let data = try? Data(contentsOf: url),
+            let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+            let value = plist["DEEPSEEK_API_KEY"] as? String,
+            let apiKey = normalizedAPIKey(value)
+        else {
+            return ""
+        }
+
+        return apiKey
+    }
+
+    nonisolated static func normalizedAPIKey(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false, trimmed.contains("$(") == false else {
+            return nil
+        }
+
+        return trimmed
     }
 }
 

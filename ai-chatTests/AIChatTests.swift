@@ -1,0 +1,442 @@
+//
+//  AIChatTests.swift
+//  ai-chatTests
+//
+//  Created by Максим Ковалев on 6/11/26.
+//
+
+import SwiftData
+import XCTest
+@testable import ai_chat
+
+@MainActor
+final class AIChatTests: XCTestCase {
+    func testLoadCreatesInitialSession() async {
+        let sut = makeViewModel()
+
+        await sut.load()
+
+        XCTAssertEqual(sut.sessions.count, 1)
+        XCTAssertNotNil(sut.selectedSessionID)
+        XCTAssertTrue(sut.messages.isEmpty)
+    }
+
+    func testSendMessageAppendsUserAndAssistantMessages() async {
+        let sut = makeViewModel(chatService: StubChatService(response: "Assistant answer"))
+
+        await sut.load()
+        await sut.sendMessage("  Hello, Swift  ")
+
+        XCTAssertEqual(sut.messages.map(\.content), ["Hello, Swift", "Assistant answer"])
+        XCTAssertEqual(sut.messages.map(\.role), [.user, .assistant])
+        XCTAssertEqual(sut.sessions.first?.title, "Hello, Swift")
+        XCTAssertFalse(sut.isResponding)
+    }
+
+    func testSendMessageIgnoresEmptyContent() async {
+        let sut = makeViewModel(chatService: StubChatService(response: "Ignored"))
+
+        await sut.load()
+        await sut.sendMessage(" \n\t ")
+
+        XCTAssertTrue(sut.messages.isEmpty)
+    }
+
+    func testCanSendRespectsWhitespaceAndResponseState() async {
+        let service = SuspendedChatService()
+        let sut = makeViewModel(chatService: service)
+
+        await sut.load()
+
+        XCTAssertFalse(sut.canSend("   "))
+        XCTAssertTrue(sut.canSend("Hello"))
+
+        let task = Task {
+            await sut.sendMessage("Hello")
+        }
+
+        await waitUntil { sut.isResponding }
+        XCTAssertFalse(sut.canSend("Another message"))
+
+        task.cancel()
+        await task.value
+    }
+
+    func testSendMessageShowsFallbackWhenServiceFails() async {
+        let sut = makeViewModel(chatService: FailingChatService())
+
+        await sut.load()
+        await sut.sendMessage("Hello")
+
+        XCTAssertEqual(sut.messages.map(\.role), [.user, .assistant])
+        XCTAssertEqual(sut.messages.last?.content, "Something went wrong. Please try again.")
+    }
+
+    func testSendMessageUsesLimitedRecentContext() async {
+        let recorder = MessageRecorder()
+        let session = ChatSession(title: "Existing chat")
+        let store = InMemoryChatStore(
+            sessions: [session],
+            messagesBySessionID: [
+                session.id: [
+                    ChatMessage(content: "One", role: .user),
+                    ChatMessage(content: "Two", role: .assistant),
+                    ChatMessage(content: "Three", role: .user)
+                ]
+            ]
+        )
+        let sut = ChatViewModel(
+            chatStore: store,
+            chatService: RecordingChatService(recorder: recorder, response: "Four"),
+            maxContextMessages: 3
+        )
+
+        await sut.load()
+        await sut.sendMessage("Question")
+
+        let sentMessages = await recorder.messages()
+        XCTAssertEqual(sentMessages.map(\.content), ["Two", "Three", "Question"])
+    }
+
+    func testTopicSessionPassesTopicPromptToService() async {
+        let recorder = MessageRecorder()
+        let topic = LanguageTopic.all[1]
+        let sut = makeViewModel(
+            chatService: RecordingChatService(recorder: recorder, response: "Topic answer")
+        )
+
+        await sut.load()
+        await sut.createSession(topic: topic)
+        await sut.sendMessage("Let's practice")
+
+        XCTAssertEqual(sut.selectedSession?.topicID, topic.id)
+        XCTAssertEqual(sut.selectedSession?.topicTitle, topic.title)
+
+        let sentPrompt = await recorder.systemPrompt()
+        XCTAssertEqual(sentPrompt, topic.systemPrompt)
+    }
+
+    func testOpenSessionForTopicReusesLatestExistingSession() async {
+        let recorder = MessageRecorder()
+        let topic = LanguageTopic.all[4]
+        let olderDate = Date(timeIntervalSince1970: 1)
+        let latestDate = Date(timeIntervalSince1970: 2)
+        let olderSession = ChatSession(
+            title: "Old Hobbies",
+            topicID: topic.id,
+            topicTitle: topic.title,
+            systemPrompt: topic.systemPrompt,
+            createdAt: olderDate,
+            updatedAt: olderDate
+        )
+        let latestSession = ChatSession(
+            title: "Latest Hobbies",
+            topicID: topic.id,
+            topicTitle: topic.title,
+            systemPrompt: topic.systemPrompt,
+            createdAt: latestDate,
+            updatedAt: latestDate
+        )
+        let latestMessage = ChatMessage(
+            content: "Hi! What do you like doing after work?",
+            role: .assistant,
+            createdAt: latestDate
+        )
+        let store = InMemoryChatStore(
+            sessions: [olderSession, latestSession],
+            messagesBySessionID: [
+                olderSession.id: [
+                    ChatMessage(content: "Older answer", role: .assistant, createdAt: olderDate)
+                ],
+                latestSession.id: [latestMessage]
+            ]
+        )
+        let sut = makeViewModel(
+            store: store,
+            chatService: RecordingChatService(recorder: recorder, response: "Should not be used")
+        )
+
+        await sut.load()
+        let openedSessionID = await sut.openSession(for: topic)
+        await sut.startConversation(in: latestSession.id)
+
+        XCTAssertEqual(openedSessionID, latestSession.id)
+        XCTAssertEqual(sut.selectedSessionID, latestSession.id)
+        XCTAssertEqual(sut.messages, [latestMessage])
+        XCTAssertEqual(sut.sessions.filter { $0.topicID == topic.id }.count, 2)
+
+        let requestCount = await recorder.requestCount()
+        XCTAssertEqual(requestCount, 0)
+    }
+
+    func testOpenSessionForTopicCreatesMissingSessionOnlyOnce() async {
+        let topic = LanguageTopic.all[4]
+        let sut = makeViewModel()
+
+        await sut.load()
+        let firstSessionID = await sut.openSession(for: topic)
+        let sessionCountAfterFirstOpen = sut.sessions.count
+        let secondSessionID = await sut.openSession(for: topic)
+
+        XCTAssertEqual(firstSessionID, secondSessionID)
+        XCTAssertEqual(sut.sessions.count, sessionCountAfterFirstOpen)
+        XCTAssertEqual(sut.sessions.filter { $0.topicID == topic.id }.count, 1)
+    }
+
+    func testCreatingTopicSessionKeepsPreviousTopicSessionInHistory() async {
+        let topic = LanguageTopic.all[4]
+        let sut = makeViewModel()
+
+        await sut.load()
+        let firstSessionID = await sut.createSession(topic: topic)
+        let secondSessionID = await sut.createSession(topic: topic)
+
+        XCTAssertNotNil(firstSessionID)
+        XCTAssertNotNil(secondSessionID)
+        XCTAssertNotEqual(firstSessionID, secondSessionID)
+        XCTAssertEqual(sut.sessions.filter { $0.topicID == topic.id }.count, 2)
+    }
+
+    func testTopicSessionStartsWithAssistantOpeningQuestion() async {
+        let recorder = MessageRecorder()
+        let topic = LanguageTopic.all[2]
+        let sut = makeViewModel(
+            chatService: RecordingChatService(recorder: recorder, response: "Hi! What food do you like to cook?")
+        )
+
+        await sut.load()
+        guard let sessionID = await sut.createSession(topic: topic) else {
+            XCTFail("Expected topic session")
+            return
+        }
+
+        await sut.startConversation(in: sessionID)
+
+        XCTAssertEqual(sut.messages.map(\.role), [.assistant])
+        XCTAssertEqual(sut.messages.map(\.content), ["Hi! What food do you like to cook?"])
+
+        let sentMessages = await recorder.messages()
+        let sentPrompt = await recorder.systemPrompt()
+        XCTAssertEqual(sentMessages.map(\.content), [LanguageTopic.openingRequest])
+        XCTAssertEqual(sentPrompt, topic.systemPrompt)
+    }
+
+    func testStartConversationDoesNotDuplicateOpeningMessage() async {
+        let recorder = MessageRecorder()
+        let topic = LanguageTopic.all[3]
+        let sut = makeViewModel(
+            chatService: RecordingChatService(recorder: recorder, response: "Hi! What do you do for work?")
+        )
+
+        await sut.load()
+        guard let sessionID = await sut.createSession(topic: topic) else {
+            XCTFail("Expected topic session")
+            return
+        }
+
+        await sut.startConversation(in: sessionID)
+        await sut.startConversation(in: sessionID)
+
+        XCTAssertEqual(sut.messages.count, 1)
+
+        let requestCount = await recorder.requestCount()
+        XCTAssertEqual(requestCount, 1)
+    }
+
+    func testDefaultSessionUsesTeacherPrompt() async {
+        let recorder = MessageRecorder()
+        let sut = makeViewModel(
+            chatService: RecordingChatService(recorder: recorder, response: "Default answer")
+        )
+
+        await sut.load()
+        await sut.sendMessage("Hello")
+
+        let sentPrompt = await recorder.systemPrompt()
+        XCTAssertEqual(sentPrompt, LanguageTopic.defaultSystemPrompt)
+    }
+
+    func testServiceErrorMessageIsNotStoredInNextContext() async {
+        let service = FailingOnceChatService()
+        let sut = makeViewModel(chatService: service)
+
+        await sut.load()
+        await sut.sendMessage("First question")
+        await sut.sendMessage("Second question")
+
+        let sentMessages = await service.messagesFromLastRequest()
+        XCTAssertEqual(sentMessages.map(\.content), ["First question", "Second question"])
+    }
+
+    func testCreateAndDeleteSessions() async {
+        let sut = makeViewModel()
+
+        await sut.load()
+        let firstSessionID = sut.selectedSessionID
+
+        await sut.createSession()
+        XCTAssertEqual(sut.sessions.count, 2)
+        XCTAssertNotEqual(sut.selectedSessionID, firstSessionID)
+
+        guard let firstSessionID else {
+            XCTFail("Expected initial session")
+            return
+        }
+
+        await sut.deleteSession(firstSessionID)
+        XCTAssertEqual(sut.sessions.count, 1)
+        XCTAssertNotEqual(sut.selectedSessionID, firstSessionID)
+    }
+
+    func testSwiftDataStorePersistsSessionsAndMessages() throws {
+        let container = try makeInMemoryModelContainer()
+        let sessionStore = SwiftDataChatStore(modelContext: ModelContext(container))
+        let session = try sessionStore.createSession()
+        let message = ChatMessage(content: "Persist this", role: .user)
+
+        try sessionStore.appendMessage(message, to: session.id)
+
+        let reloadedStore = SwiftDataChatStore(modelContext: ModelContext(container))
+        let sessions = try reloadedStore.fetchSessions()
+        let messages = try reloadedStore.fetchMessages(for: session.id)
+
+        XCTAssertEqual(sessions.map(\.id), [session.id])
+        XCTAssertEqual(sessions.first?.title, "Persist this")
+        XCTAssertEqual(messages, [message])
+    }
+
+    func testChatServiceErrorDescriptions() {
+        XCTAssertNotNil(ChatServiceError.missingAPIKey.errorDescription)
+        XCTAssertNotNil(ChatServiceError.invalidResponse.errorDescription)
+        XCTAssertNotNil(ChatServiceError.emptyResponse.errorDescription)
+        XCTAssertEqual(
+            ChatServiceError.httpFailure(statusCode: 429).errorDescription,
+            "The AI service returned HTTP 429."
+        )
+    }
+
+    private func makeViewModel(
+        chatService: any ChatServing = StubChatService(response: "OK")
+    ) -> ChatViewModel {
+        makeViewModel(store: InMemoryChatStore(), chatService: chatService)
+    }
+
+    private func makeViewModel(
+        store: any ChatStoring,
+        chatService: any ChatServing = StubChatService(response: "OK")
+    ) -> ChatViewModel {
+        ChatViewModel(chatStore: store, chatService: chatService)
+    }
+
+    private func makeInMemoryModelContainer() throws -> ModelContainer {
+        let schema = Schema([
+            ChatSessionRecord.self,
+            ChatMessageRecord.self
+        ])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        return try ModelContainer(for: schema, configurations: [configuration])
+    }
+
+    private func waitUntil(
+        _ condition: @escaping @MainActor () -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<20 where condition() == false {
+            await Task.yield()
+        }
+
+        XCTAssertTrue(condition(), file: file, line: line)
+    }
+}
+
+private struct StubChatService: ChatServing {
+    let response: String
+
+    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> String {
+        response
+    }
+}
+
+private struct FailingChatService: ChatServing {
+    enum Failure: Error {
+        case expected
+    }
+
+    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> String {
+        throw Failure.expected
+    }
+}
+
+private struct SuspendedChatService: ChatServing {
+    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> String {
+        try await Task.sleep(for: .seconds(30))
+        return "Late response"
+    }
+}
+
+private actor MessageRecorder {
+    private var recordedMessages: [ChatMessage] = []
+    private var recordedSystemPrompt = ""
+    private var recordedRequestCount = 0
+
+    func record(_ messages: [ChatMessage], systemPrompt: String) {
+        recordedMessages = messages
+        recordedSystemPrompt = systemPrompt
+        recordedRequestCount += 1
+    }
+
+    func messages() -> [ChatMessage] {
+        recordedMessages
+    }
+
+    func systemPrompt() -> String {
+        recordedSystemPrompt
+    }
+
+    func requestCount() -> Int {
+        recordedRequestCount
+    }
+}
+
+private struct RecordingChatService: ChatServing {
+    let recorder: MessageRecorder
+    let response: String
+
+    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> String {
+        await recorder.record(messages, systemPrompt: systemPrompt)
+        return response
+    }
+}
+
+private struct FailingOnceChatService: ChatServing {
+    private let state = FailingOnceState()
+
+    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> String {
+        try await state.response(for: messages)
+    }
+
+    func messagesFromLastRequest() async -> [ChatMessage] {
+        await state.messagesFromLastRequest()
+    }
+}
+
+private actor FailingOnceState {
+    private var requestCount = 0
+    private var lastMessages: [ChatMessage] = []
+
+    func response(for messages: [ChatMessage]) throws -> String {
+        requestCount += 1
+        lastMessages = messages
+
+        if requestCount == 1 {
+            throw FailingChatService.Failure.expected
+        }
+
+        return "Recovered"
+    }
+
+    func messagesFromLastRequest() -> [ChatMessage] {
+        lastMessages
+    }
+}
