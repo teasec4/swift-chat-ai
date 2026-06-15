@@ -38,7 +38,10 @@ struct ChatBubbleView: View {
             }
 
             if message.corrections.isEmpty == false {
-                MessageCorrectionListView(corrections: message.corrections)
+                MessageCorrectionListView(
+                    messageID: message.id,
+                    corrections: message.corrections
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
