@@ -11,13 +11,17 @@ struct ChatTranscriptView: View {
     let messages: [ChatMessage]
     let isResponding: Bool
     let partialResponse: String?
+    let feedbackCenter: FeedbackCenter
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     ForEach(messages) { message in
-                        ChatBubbleView(message: message)
+                        ChatBubbleView(
+                            message: message,
+                            feedbackCenter: feedbackCenter
+                        )
                             .id(message.id)
                     }
 

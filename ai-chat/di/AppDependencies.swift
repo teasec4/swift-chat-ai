@@ -13,6 +13,7 @@ struct AppDependencies {
     let chatStore: any ChatStoring
     let chatService: any ChatServing
     let networkAccessAuthorizer: any NetworkAccessAuthorizing
+    let feedbackStore: any FeedbackStoring
     let chatConfiguration: ChatFeatureConfiguration
     let modelContainer: ModelContainer
 
@@ -24,6 +25,7 @@ struct AppDependencies {
             chatStore: SwiftDataChatStore(modelContext: ModelContext(container)),
             chatService: DeepSeekChatService(configuration: serviceConfiguration),
             networkAccessAuthorizer: NetworkAccessAuthorizer(probeURL: serviceConfiguration.availabilityProbeURL),
+            feedbackStore: UserDefaultsFeedbackStore(),
             chatConfiguration: chatConfiguration,
             modelContainer: container
         )
@@ -38,6 +40,7 @@ struct AppDependencies {
             chatStore: store,
             chatService: PreviewChatService(),
             networkAccessAuthorizer: PreviewNetworkAccessAuthorizer(),
+            feedbackStore: UserDefaultsFeedbackStore(),
             chatConfiguration: chatConfiguration,
             modelContainer: container
         )

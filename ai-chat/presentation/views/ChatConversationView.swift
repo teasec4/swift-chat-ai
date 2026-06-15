@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ChatConversationView: View {
     let viewModel: ChatViewModel
+    let feedbackCenter: FeedbackCenter
 
     @State private var draft = ""
     @State private var topicPendingFreshSession: LanguageTopic?
@@ -23,7 +24,8 @@ struct ChatConversationView: View {
                 ChatTranscriptView(
                     messages: viewModel.messages,
                     isResponding: viewModel.isSelectedSessionResponding,
-                    partialResponse: viewModel.selectedPartialResponse
+                    partialResponse: viewModel.selectedPartialResponse,
+                    feedbackCenter: feedbackCenter
                 )
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         VStack(spacing: 0) {

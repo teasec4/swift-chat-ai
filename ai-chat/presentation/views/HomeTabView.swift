@@ -9,6 +9,7 @@ import SwiftUI
 
 struct HomeTabView: View {
     let viewModel: ChatViewModel
+    let feedbackCenter: FeedbackCenter
 
     @State private var path: [ChatSession.ID] = []
     @State private var pendingNetworkTopic: LanguageTopic?
@@ -47,7 +48,8 @@ struct HomeTabView: View {
             .navigationDestination(for: ChatSession.ID.self) { sessionID in
                 ChatSessionDestinationView(
                     viewModel: viewModel,
-                    sessionID: sessionID
+                    sessionID: sessionID,
+                    feedbackCenter: feedbackCenter
                 )
             }
         }

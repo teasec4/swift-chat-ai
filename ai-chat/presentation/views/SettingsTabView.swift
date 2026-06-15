@@ -9,6 +9,7 @@ import SwiftUI
 
 struct SettingsTabView: View {
     let viewModel: ChatViewModel
+    let feedbackCenter: FeedbackCenter
 
     @State private var path = NavigationPath()
 
@@ -34,7 +35,8 @@ struct SettingsTabView: View {
             .navigationDestination(for: ChatSession.ID.self) { sessionID in
                 ChatSessionDestinationView(
                     viewModel: viewModel,
-                    sessionID: sessionID
+                    sessionID: sessionID,
+                    feedbackCenter: feedbackCenter
                 )
             }
         }

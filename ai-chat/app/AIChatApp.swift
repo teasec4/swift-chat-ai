@@ -12,10 +12,13 @@ import SwiftData
 @MainActor
 struct AIChatApp: App {
     @State private var dependencies: AppDependencies
+    @State private var feedbackCenter: FeedbackCenter
 
     init() {
         do {
-            _dependencies = State(initialValue: try AppDependencies.live())
+            let dependencies = try AppDependencies.live()
+            _dependencies = State(initialValue: dependencies)
+            _feedbackCenter = State(initialValue: FeedbackCenter(store: dependencies.feedbackStore))
         } catch {
             fatalError("Failed to create app dependencies: \(error)")
         }
@@ -29,7 +32,8 @@ struct AIChatApp: App {
                     chatService: dependencies.chatService,
                     networkAccessAuthorizer: dependencies.networkAccessAuthorizer,
                     configuration: dependencies.chatConfiguration
-                )
+                ),
+                feedbackCenter: feedbackCenter
             )
             .modelContainer(dependencies.modelContainer)
         }

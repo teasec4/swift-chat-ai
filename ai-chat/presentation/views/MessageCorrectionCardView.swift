@@ -10,13 +10,16 @@ import SwiftUI
 struct MessageCorrectionListView: View {
     let messageID: ChatMessage.ID
     let corrections: [MessageCorrection]
+    let feedbackCenter: FeedbackCenter
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(corrections.enumerated()), id: \.offset) { index, correction in
                 MessageCorrectionCardView(
+                    messageID: messageID,
                     correction: correction,
-                    storageKey: "chat.correction.\(messageID.uuidString).\(index).collapsed"
+                    storageKey: "chat.correction.\(messageID.uuidString).\(index).collapsed",
+                    feedbackCenter: feedbackCenter
                 )
             }
         }
@@ -25,43 +28,66 @@ struct MessageCorrectionListView: View {
 }
 
 private struct MessageCorrectionCardView: View {
+    let messageID: ChatMessage.ID
     let correction: MessageCorrection
+    let feedbackCenter: FeedbackCenter
 
     @AppStorage private var isCollapsed: Bool
 
-    init(correction: MessageCorrection, storageKey: String) {
+    init(
+        messageID: ChatMessage.ID,
+        correction: MessageCorrection,
+        storageKey: String,
+        feedbackCenter: FeedbackCenter
+    ) {
+        self.messageID = messageID
         self.correction = correction
+        self.feedbackCenter = feedbackCenter
         self._isCollapsed = AppStorage(wrappedValue: false, storageKey)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button {
-                withAnimation(.snappy(duration: 0.18)) {
-                    isCollapsed.toggle()
+            HStack(spacing: 8) {
+                Button {
+                    withAnimation(.snappy(duration: 0.18)) {
+                        isCollapsed.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle")
+                            .foregroundStyle(.green)
+
+                        Text(title)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+
+                        Spacer(minLength: 8)
+
+                        Image(systemName: "chevron.down")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                            .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle")
-                        .foregroundStyle(.green)
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(title) correction")
+                .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
 
-                    Text(title)
+                Button {
+                    feedbackCenter.save(correction: correction, sourceMessageID: messageID)
+                } label: {
+                    Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    Spacer(minLength: 8)
-
-                    Image(systemName: "chevron.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+                        .foregroundStyle(isSaved ? Color.accentColor : .secondary)
+                        .frame(width: 28, height: 28)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .disabled(isSaved)
+                .accessibilityLabel(isSaved ? "Correction saved" : "Save correction")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(title) correction")
-            .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
 
             if isCollapsed {
                 if let collapsedSummary {
@@ -127,6 +153,10 @@ private struct MessageCorrectionCardView: View {
         case (.none, .none):
             correction.explanation?.trimmedNonEmpty
         }
+    }
+
+    private var isSaved: Bool {
+        feedbackCenter.contains(correction: correction, sourceMessageID: messageID)
     }
 }
 

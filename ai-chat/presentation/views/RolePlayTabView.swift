@@ -9,6 +9,7 @@ import SwiftUI
 
 struct RolePlayTabView: View {
     let viewModel: ChatViewModel
+    let feedbackCenter: FeedbackCenter
 
     @State private var path: [ChatSession.ID] = []
     @State private var pendingNetworkScenario: RolePlayScenario?
@@ -47,7 +48,8 @@ struct RolePlayTabView: View {
             .navigationDestination(for: ChatSession.ID.self) { sessionID in
                 ChatSessionDestinationView(
                     viewModel: viewModel,
-                    sessionID: sessionID
+                    sessionID: sessionID,
+                    feedbackCenter: feedbackCenter
                 )
             }
         }

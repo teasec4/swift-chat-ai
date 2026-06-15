@@ -11,27 +11,34 @@ import SwiftData
 @MainActor
 struct ChatRootView: View {
     @State private var viewModel: ChatViewModel
+    @State private var feedbackCenter: FeedbackCenter
     @State private var hasPreparedStartupNetwork = false
     @State private var isShowingStartupNetworkPrompt = false
     @State private var startupNetworkErrorMessage: String?
 
-    init(viewModel: ChatViewModel) {
+    init(viewModel: ChatViewModel, feedbackCenter: FeedbackCenter) {
         _viewModel = State(initialValue: viewModel)
+        _feedbackCenter = State(initialValue: feedbackCenter)
     }
 
     var body: some View {
         TabView {
-            HomeTabView(viewModel: viewModel)
+            HomeTabView(viewModel: viewModel, feedbackCenter: feedbackCenter)
             .tabItem {
                 Label("Home", systemImage: "house")
             }
 
-            RolePlayTabView(viewModel: viewModel)
+            RolePlayTabView(viewModel: viewModel, feedbackCenter: feedbackCenter)
             .tabItem {
                 Label("Role Play", systemImage: "theatermasks")
             }
 
-            SettingsTabView(viewModel: viewModel)
+            ProgressTabView(feedbackCenter: feedbackCenter)
+            .tabItem {
+                Label("Progress", systemImage: "chart.line.uptrend.xyaxis")
+            }
+
+            SettingsTabView(viewModel: viewModel, feedbackCenter: feedbackCenter)
             .tabItem {
                 Label("Settings", systemImage: "gearshape")
             }
@@ -112,7 +119,8 @@ struct ChatRootView: View {
             chatService: dependencies.chatService,
             networkAccessAuthorizer: dependencies.networkAccessAuthorizer,
             configuration: dependencies.chatConfiguration
-        )
+        ),
+        feedbackCenter: FeedbackCenter(store: dependencies.feedbackStore)
     )
     .modelContainer(dependencies.modelContainer)
 }
