@@ -21,12 +21,12 @@ final class InMemoryChatStore: ChatStoring {
         sessions.sorted { $0.updatedAt > $1.updatedAt }
     }
 
-    func createSession(topic: LanguageTopic? = nil) throws -> ChatSession {
+    func createSession(from draft: ChatSessionDraft) throws -> ChatSession {
         let session = ChatSession(
-            title: topic?.title ?? ChatSession.defaultTitle,
-            topicID: topic?.id,
-            topicTitle: topic?.title,
-            systemPrompt: topic?.systemPrompt ?? LanguageTopic.defaultSystemPrompt
+            title: draft.title,
+            topicID: draft.topicID,
+            topicTitle: draft.topicTitle,
+            systemPrompt: draft.systemPrompt
         )
         sessions.insert(session, at: 0)
         messagesBySessionID[session.id] = []

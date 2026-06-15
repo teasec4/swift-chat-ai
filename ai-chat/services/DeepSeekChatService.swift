@@ -8,13 +8,47 @@
 import Foundation
 
 struct DeepSeekChatService: ChatServing {
-    private let apiKey: String
-    private let model = "deepseek-v4-flash"
-    private let endpoint = URL(string: "https://api.deepseek.com/v1/chat/completions")!
-    private let temperature = 0.7
+    struct Configuration: Hashable, Sendable {
+        let endpoint: URL
+        let availabilityProbeURL: URL
+        let model: String
+        let temperature: Double
+        let timeoutInterval: TimeInterval
 
-    nonisolated init(apiKey: String = Self.apiKeyFromBundle()) {
+        init(
+            endpoint: URL,
+            availabilityProbeURL: URL,
+            model: String,
+            temperature: Double,
+            timeoutInterval: TimeInterval = 60
+        ) {
+            self.endpoint = endpoint
+            self.availabilityProbeURL = availabilityProbeURL
+            self.model = model
+            self.temperature = temperature
+            self.timeoutInterval = timeoutInterval
+        }
+
+        nonisolated static let live = Configuration(
+            endpoint: URL(string: "https://api.deepseek.com/v1/chat/completions")!,
+            availabilityProbeURL: URL(string: "https://api.deepseek.com")!,
+            model: "deepseek-v4-flash",
+            temperature: 0.7
+        )
+    }
+
+    private let apiKey: String
+    private let configuration: Configuration
+    private let urlSession: URLSession
+
+    nonisolated init(
+        apiKey: String = Self.apiKeyFromBundle(),
+        configuration: Configuration = .live,
+        urlSession: URLSession = .shared
+    ) {
         self.apiKey = apiKey
+        self.configuration = configuration
+        self.urlSession = urlSession
     }
 
     nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> AssistantResponse {
@@ -22,9 +56,9 @@ struct DeepSeekChatService: ChatServing {
             throw ChatServiceError.missingAPIKey
         }
 
-        var request = URLRequest(url: endpoint)
+        var request = URLRequest(url: configuration.endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 60
+        request.timeoutInterval = configuration.timeoutInterval
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -32,7 +66,7 @@ struct DeepSeekChatService: ChatServing {
             makeRequestBody(from: messages, systemPrompt: systemPrompt)
         )
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await urlSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw ChatServiceError.invalidResponse
         }
@@ -58,14 +92,14 @@ struct DeepSeekChatService: ChatServing {
         systemPrompt: String
     ) -> ChatRequest {
         ChatRequest(
-            model: model,
+            model: configuration.model,
             messages: [
                 ChatRequest.Message(role: "system", content: systemPrompt),
                 ChatRequest.Message(role: "system", content: AssistantResponse.responseInstructions)
             ] + messages.map {
                 ChatRequest.Message(role: $0.role.rawValue, content: $0.content)
             },
-            temperature: temperature,
+            temperature: configuration.temperature,
             responseFormat: .jsonObject
         )
     }

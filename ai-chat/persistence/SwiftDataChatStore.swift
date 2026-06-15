@@ -25,12 +25,12 @@ final class SwiftDataChatStore: ChatStoring {
         return try modelContext.fetch(descriptor).map(ChatSession.init(record:))
     }
 
-    func createSession(topic: LanguageTopic? = nil) throws -> ChatSession {
+    func createSession(from draft: ChatSessionDraft) throws -> ChatSession {
         let session = ChatSessionRecord(
-            title: topic?.title ?? ChatSession.defaultTitle,
-            topicID: topic?.id,
-            topicTitle: topic?.title,
-            systemPrompt: topic?.systemPrompt ?? LanguageTopic.defaultSystemPrompt
+            title: draft.title,
+            topicID: draft.topicID,
+            topicTitle: draft.topicTitle,
+            systemPrompt: draft.systemPrompt
         )
         modelContext.insert(session)
         try modelContext.save()

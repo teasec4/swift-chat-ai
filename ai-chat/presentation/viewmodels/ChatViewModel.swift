@@ -15,28 +15,50 @@ final class ChatViewModel {
     private(set) var messages: [ChatMessage] = []
     private(set) var selectedSessionID: ChatSession.ID?
     private(set) var isLoading = false
-    private(set) var isResponding = false
+    private(set) var respondingSessionIDs: Set<ChatSession.ID> = []
+    private(set) var errorNoticesBySessionID: [ChatSession.ID: ChatErrorNotice] = [:]
+    private(set) var generalErrorNotice: ChatErrorNotice?
 
     @ObservationIgnored private let chatStore: any ChatStoring
     @ObservationIgnored private let chatService: any ChatServing
     @ObservationIgnored private let networkAccessAuthorizer: any NetworkAccessAuthorizing
-    @ObservationIgnored private let maxContextMessages: Int
+    @ObservationIgnored private let configuration: ChatFeatureConfiguration
+    @ObservationIgnored private var responseTasksBySessionID: [ChatSession.ID: Task<AssistantResponse, Error>] = [:]
+    @ObservationIgnored private var failedRequestsBySessionID: [ChatSession.ID: FailedAssistantRequest] = [:]
 
     init(
         chatStore: any ChatStoring,
         chatService: any ChatServing,
         networkAccessAuthorizer: any NetworkAccessAuthorizing,
-        maxContextMessages: Int = 12
+        configuration: ChatFeatureConfiguration = .englishPractice
     ) {
         self.chatStore = chatStore
         self.chatService = chatService
         self.networkAccessAuthorizer = networkAccessAuthorizer
-        self.maxContextMessages = maxContextMessages
+        self.configuration = configuration
     }
 
     var selectedSession: ChatSession? {
         guard let selectedSessionID else { return nil }
         return sessions.first { $0.id == selectedSessionID }
+    }
+
+    var topics: [LanguageTopic] {
+        configuration.topics
+    }
+
+    var isResponding: Bool {
+        respondingSessionIDs.isEmpty == false
+    }
+
+    var isSelectedSessionResponding: Bool {
+        guard let selectedSessionID else { return false }
+        return isResponding(in: selectedSessionID)
+    }
+
+    var selectedSessionError: ChatErrorNotice? {
+        guard let selectedSessionID else { return generalErrorNotice }
+        return errorNoticesBySessionID[selectedSessionID]
     }
 
     var hasApprovedNetworkAccess: Bool {
@@ -61,7 +83,7 @@ final class ChatViewModel {
             try refreshSessions()
 
             if sessions.isEmpty {
-                let session = try chatStore.createSession(topic: nil)
+                let session = try chatStore.createSession(from: sessionDraft(topic: nil))
                 try refreshSessions(selecting: session.id)
             }
 
@@ -70,8 +92,9 @@ final class ChatViewModel {
             }
 
             try loadMessagesForSelectedSession()
+            generalErrorNotice = nil
         } catch {
-            showTransientError(error)
+            showError(error, for: selectedSessionID, canRetry: false)
         }
     }
 
@@ -83,19 +106,19 @@ final class ChatViewModel {
         do {
             try loadMessagesForSelectedSession()
         } catch {
-            showTransientError(error)
+            showError(error, for: sessionID, canRetry: false)
         }
     }
 
     @discardableResult
     func createSession(topic: LanguageTopic? = nil) async -> ChatSession.ID? {
         do {
-            let session = try chatStore.createSession(topic: topic)
+            let session = try chatStore.createSession(from: sessionDraft(topic: topic))
             try refreshSessions(selecting: session.id)
             messages = []
             return session.id
         } catch {
-            showTransientError(error)
+            showError(error, for: selectedSessionID, canRetry: false)
             return nil
         }
     }
@@ -111,63 +134,40 @@ final class ChatViewModel {
                 return session.id
             }
 
-            let session = try chatStore.createSession(topic: topic)
+            let session = try chatStore.createSession(from: sessionDraft(topic: topic))
             try refreshSessions(selecting: session.id)
             messages = []
             return session.id
         } catch {
-            showTransientError(error)
+            showError(error, for: selectedSessionID, canRetry: false)
             return nil
         }
     }
 
     func startConversation(in sessionID: ChatSession.ID) async {
-        guard isResponding == false else { return }
+        guard isResponding(in: sessionID) == false else { return }
 
         do {
             let storedMessages = try chatStore.fetchMessages(for: sessionID)
             guard storedMessages.isEmpty else { return }
 
-            let systemPrompt = systemPrompt(for: sessionID)
-            let openingRequest = ChatMessage(
-                content: LanguageTopic.openingRequest,
-                role: .user
-            )
-
-            isResponding = true
-            defer { isResponding = false }
-
-            let assistantResponse = try await chatService.response(
-                for: [openingRequest],
-                systemPrompt: systemPrompt
-            )
-            let assistantMessage = ChatMessage(
-                content: assistantResponse.reply,
-                role: .assistant,
-                corrections: assistantResponse.corrections
-            )
-
-            try chatStore.appendMessage(assistantMessage, to: sessionID)
-            try refreshSessions(selecting: selectedSessionID)
-
-            if selectedSessionID == sessionID {
-                messages.append(assistantMessage)
-            }
-        } catch is CancellationError {
-            return
+            await requestAssistantResponse(for: sessionID, failedRequest: .opening)
         } catch {
-            showTransientError(error, for: sessionID)
+            showError(error, for: sessionID, canRetry: false)
         }
     }
 
     func deleteSession(_ sessionID: ChatSession.ID) async {
         do {
             let wasSelected = selectedSessionID == sessionID
+            cancelResponse(in: sessionID)
+            clearError(for: sessionID)
+
             try chatStore.deleteSession(id: sessionID)
             try refreshSessions()
 
             if sessions.isEmpty {
-                let session = try chatStore.createSession(topic: nil)
+                let session = try chatStore.createSession(from: sessionDraft(topic: nil))
                 try refreshSessions(selecting: session.id)
                 messages = []
                 return
@@ -178,24 +178,26 @@ final class ChatViewModel {
                 try loadMessagesForSelectedSession()
             }
         } catch {
-            showTransientError(error)
+            showError(error, for: selectedSessionID, canRetry: false)
         }
     }
 
     func canSend(_ content: String) -> Bool {
-        sanitizedContent(from: content).isEmpty == false && isResponding == false
+        sanitizedContent(from: content).isEmpty == false && isSelectedSessionResponding == false
     }
 
     func sendMessage(_ content: String) async {
         let content = sanitizedContent(from: content)
-        guard content.isEmpty == false, isResponding == false else { return }
+        guard content.isEmpty == false else { return }
 
         var responseSessionID: ChatSession.ID?
 
         do {
             let sessionID = try selectedOrCreatedSessionID()
             responseSessionID = sessionID
-            let systemPrompt = systemPrompt(for: sessionID)
+            guard isResponding(in: sessionID) == false else { return }
+
+            clearError(for: sessionID)
             let userMessage = ChatMessage(content: content, role: .user)
 
             try chatStore.appendMessage(userMessage, to: sessionID)
@@ -204,31 +206,46 @@ final class ChatViewModel {
             }
             try refreshSessions(selecting: selectedSessionID)
 
-            isResponding = true
-            defer { isResponding = false }
-
-            let context = try recentContext(for: sessionID)
-            let assistantResponse = try await chatService.response(
-                for: context,
-                systemPrompt: systemPrompt
-            )
-            let assistantMessage = ChatMessage(
-                content: assistantResponse.reply,
-                role: .assistant,
-                corrections: assistantResponse.corrections
-            )
-
-            try chatStore.appendMessage(assistantMessage, to: sessionID)
-            try refreshSessions(selecting: selectedSessionID)
-
-            if selectedSessionID == sessionID {
-                messages.append(assistantMessage)
-            }
+            await requestAssistantResponse(for: sessionID, failedRequest: .latestMessages)
         } catch is CancellationError {
             return
         } catch {
-            showTransientError(error, for: responseSessionID)
+            showError(error, for: responseSessionID, canRetry: false)
         }
+    }
+
+    func cancelResponseForSelectedSession() {
+        guard let selectedSessionID else { return }
+        cancelResponse(in: selectedSessionID)
+    }
+
+    func cancelResponse(in sessionID: ChatSession.ID) {
+        responseTasksBySessionID[sessionID]?.cancel()
+    }
+
+    func retryFailedRequestForSelectedSession() async {
+        guard let selectedSessionID else { return }
+        await retryFailedRequest(in: selectedSessionID)
+    }
+
+    func retryFailedRequest(in sessionID: ChatSession.ID) async {
+        guard let failedRequest = failedRequestsBySessionID[sessionID],
+              isResponding(in: sessionID) == false
+        else {
+            return
+        }
+
+        clearError(for: sessionID)
+        await requestAssistantResponse(for: sessionID, failedRequest: failedRequest)
+    }
+
+    func dismissErrorForSelectedSession() {
+        guard let selectedSessionID else {
+            generalErrorNotice = nil
+            return
+        }
+
+        clearError(for: selectedSessionID)
     }
 
     private func selectedOrCreatedSessionID() throws -> ChatSession.ID {
@@ -236,13 +253,21 @@ final class ChatViewModel {
             return selectedSessionID
         }
 
-        let session = try chatStore.createSession(topic: nil)
+        let session = try chatStore.createSession(from: sessionDraft(topic: nil))
         try refreshSessions(selecting: session.id)
         return session.id
     }
 
+    func topic(for session: ChatSession?) -> LanguageTopic? {
+        configuration.topic(for: session)
+    }
+
+    func isResponding(in sessionID: ChatSession.ID) -> Bool {
+        respondingSessionIDs.contains(sessionID)
+    }
+
     private func systemPrompt(for sessionID: ChatSession.ID) -> String {
-        sessions.first { $0.id == sessionID }?.systemPrompt ?? LanguageTopic.defaultSystemPrompt
+        sessions.first { $0.id == sessionID }?.systemPrompt ?? configuration.defaultSystemPrompt
     }
 
     private func refreshSessions(selecting preferredSessionID: ChatSession.ID? = nil) throws {
@@ -272,16 +297,117 @@ final class ChatViewModel {
 
     private func recentContext(for sessionID: ChatSession.ID) throws -> [ChatMessage] {
         let storedMessages = try chatStore.fetchMessages(for: sessionID)
-        return Array(storedMessages.suffix(maxContextMessages))
+        return Array(storedMessages.suffix(configuration.maxContextMessages))
     }
 
-    private func showTransientError(_ error: Error, for sessionID: ChatSession.ID?) {
-        guard sessionID == selectedSessionID else { return }
-        messages.append(ChatMessage(content: errorMessage(for: error), role: .assistant))
+    private func makeContext(for failedRequest: FailedAssistantRequest, sessionID: ChatSession.ID) throws -> [ChatMessage] {
+        switch failedRequest {
+        case .opening:
+            [ChatMessage(content: configuration.openingRequest, role: .user)]
+        case .latestMessages:
+            try recentContext(for: sessionID)
+        }
     }
 
-    private func showTransientError(_ error: Error) {
-        messages.append(ChatMessage(content: errorMessage(for: error), role: .assistant))
+    private func sessionDraft(topic: LanguageTopic?) -> ChatSessionDraft {
+        ChatSessionDraft(topic: topic, defaultSystemPrompt: configuration.defaultSystemPrompt)
+    }
+
+    private func requestAssistantResponse(
+        for sessionID: ChatSession.ID,
+        failedRequest: FailedAssistantRequest
+    ) async {
+        guard isResponding(in: sessionID) == false else { return }
+
+        let context: [ChatMessage]
+        do {
+            context = try makeContext(for: failedRequest, sessionID: sessionID)
+        } catch {
+            showError(error, for: sessionID, canRetry: true, failedRequest: failedRequest)
+            return
+        }
+
+        let systemPrompt = systemPrompt(for: sessionID)
+        let task = Task {
+            try await chatService.response(
+                for: context,
+                systemPrompt: systemPrompt
+            )
+        }
+        responseTasksBySessionID[sessionID] = task
+        respondingSessionIDs.insert(sessionID)
+
+        let assistantResponse: AssistantResponse
+        do {
+            assistantResponse = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
+        } catch is CancellationError {
+            clearResponseTask(for: sessionID)
+            return
+        } catch {
+            clearResponseTask(for: sessionID)
+            showError(error, for: sessionID, canRetry: true, failedRequest: failedRequest)
+            return
+        }
+
+        clearResponseTask(for: sessionID)
+        appendAssistantResponse(assistantResponse, to: sessionID)
+    }
+
+    private func appendAssistantResponse(_ assistantResponse: AssistantResponse, to sessionID: ChatSession.ID) {
+        let assistantMessage = ChatMessage(
+            content: assistantResponse.reply,
+            role: .assistant,
+            corrections: assistantResponse.corrections
+        )
+
+        do {
+            try chatStore.appendMessage(assistantMessage, to: sessionID)
+            try refreshSessions(selecting: selectedSessionID)
+
+            if selectedSessionID == sessionID {
+                try loadMessagesForSelectedSession()
+            }
+
+            clearError(for: sessionID)
+        } catch {
+            showError(error, for: sessionID, canRetry: false)
+        }
+    }
+
+    private func clearResponseTask(for sessionID: ChatSession.ID) {
+        responseTasksBySessionID[sessionID] = nil
+        respondingSessionIDs.remove(sessionID)
+    }
+
+    private func showError(
+        _ error: Error,
+        for sessionID: ChatSession.ID?,
+        canRetry: Bool,
+        failedRequest: FailedAssistantRequest? = nil
+    ) {
+        let notice = ChatErrorNotice(message: errorMessage(for: error), canRetry: canRetry)
+
+        guard let sessionID else {
+            generalErrorNotice = notice
+            return
+        }
+
+        errorNoticesBySessionID[sessionID] = notice
+
+        if canRetry, let failedRequest {
+            failedRequestsBySessionID[sessionID] = failedRequest
+        } else {
+            failedRequestsBySessionID[sessionID] = nil
+        }
+    }
+
+    private func clearError(for sessionID: ChatSession.ID) {
+        errorNoticesBySessionID[sessionID] = nil
+        failedRequestsBySessionID[sessionID] = nil
     }
 
     private func sanitizedContent(from content: String) -> String {
@@ -296,4 +422,9 @@ final class ChatViewModel {
             "Something went wrong. Please try again."
         }
     }
+}
+
+private enum FailedAssistantRequest: Sendable {
+    case opening
+    case latestMessages
 }

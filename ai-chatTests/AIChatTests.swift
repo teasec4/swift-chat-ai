@@ -86,8 +86,70 @@ final class AIChatTests: XCTestCase {
         await sut.load()
         await sut.sendMessage("Hello")
 
+        XCTAssertEqual(sut.messages.map(\.role), [.user])
+        XCTAssertEqual(sut.messages.map(\.content), ["Hello"])
+        XCTAssertEqual(sut.selectedSessionError?.message, "Something went wrong. Please try again.")
+        XCTAssertEqual(sut.selectedSessionError?.canRetry, true)
+    }
+
+    func testRetryFailedMessageDoesNotDuplicateUserMessage() async {
+        let service = FailingOnceChatService()
+        let sut = makeViewModel(chatService: service)
+
+        await sut.load()
+        await sut.sendMessage("First question")
+
+        XCTAssertEqual(sut.messages.map(\.content), ["First question"])
+        XCTAssertNotNil(sut.selectedSessionError)
+
+        await sut.retryFailedRequestForSelectedSession()
+
+        XCTAssertEqual(sut.messages.map(\.content), ["First question", "Recovered"])
         XCTAssertEqual(sut.messages.map(\.role), [.user, .assistant])
-        XCTAssertEqual(sut.messages.last?.content, "Something went wrong. Please try again.")
+        XCTAssertNil(sut.selectedSessionError)
+    }
+
+    func testCancelResponseLeavesUserMessageWithoutError() async {
+        let sut = makeViewModel(chatService: SuspendedChatService())
+
+        await sut.load()
+
+        let task = Task {
+            await sut.sendMessage("Please answer later")
+        }
+
+        await waitUntil { sut.isSelectedSessionResponding }
+        sut.cancelResponseForSelectedSession()
+        await task.value
+
+        XCTAssertFalse(sut.isResponding)
+        XCTAssertEqual(sut.messages.map(\.content), ["Please answer later"])
+        XCTAssertNil(sut.selectedSessionError)
+    }
+
+    func testSwitchingSessionsScopesResponseState() async {
+        let sut = makeViewModel(chatService: SuspendedChatService())
+
+        await sut.load()
+        guard let firstSessionID = sut.selectedSessionID else {
+            XCTFail("Expected initial session")
+            return
+        }
+
+        let task = Task {
+            await sut.sendMessage("Answer in the first session")
+        }
+
+        await waitUntil { sut.isResponding(in: firstSessionID) }
+        let secondSessionID = await sut.createSession()
+
+        XCTAssertEqual(sut.selectedSessionID, secondSessionID)
+        XCTAssertTrue(sut.isResponding(in: firstSessionID))
+        XCTAssertFalse(sut.isSelectedSessionResponding)
+        XCTAssertTrue(sut.canSend("Message in the selected session"))
+
+        sut.cancelResponse(in: firstSessionID)
+        await task.value
     }
 
     func testSendMessageUsesLimitedRecentContext() async {
@@ -107,7 +169,7 @@ final class AIChatTests: XCTestCase {
             chatStore: store,
             chatService: RecordingChatService(recorder: recorder, response: "Four"),
             networkAccessAuthorizer: StubNetworkAccessAuthorizer(),
-            maxContextMessages: 3
+            configuration: ChatFeatureConfiguration(maxContextMessages: 3)
         )
 
         await sut.load()
@@ -240,6 +302,42 @@ final class AIChatTests: XCTestCase {
         XCTAssertEqual(sentPrompt, topic.systemPrompt)
     }
 
+    func testStartConversationUsesConfiguredOpeningRequestAndTopics() async {
+        let recorder = MessageRecorder()
+        let topic = LanguageTopic(
+            id: "custom-topic",
+            title: "Custom Topic",
+            subtitle: "Injected from host app",
+            iconName: "bubble.left",
+            systemPrompt: "Practice a custom host-app topic."
+        )
+        let configuration = ChatFeatureConfiguration(
+            topics: [topic],
+            defaultSystemPrompt: "Practice with the host app default prompt.",
+            openingRequest: "Open the custom topic.",
+            maxContextMessages: 12
+        )
+        let sut = makeViewModel(
+            chatService: RecordingChatService(recorder: recorder, response: "Custom opening"),
+            configuration: configuration
+        )
+
+        XCTAssertEqual(sut.topics, [topic])
+
+        await sut.load()
+        guard let sessionID = await sut.createSession(topic: topic) else {
+            XCTFail("Expected topic session")
+            return
+        }
+
+        await sut.startConversation(in: sessionID)
+
+        let sentMessages = await recorder.messages()
+        let sentPrompt = await recorder.systemPrompt()
+        XCTAssertEqual(sentMessages.map(\.content), ["Open the custom topic."])
+        XCTAssertEqual(sentPrompt, topic.systemPrompt)
+    }
+
     func testStartConversationDoesNotDuplicateOpeningMessage() async {
         let recorder = MessageRecorder()
         let topic = LanguageTopic.all[3]
@@ -273,6 +371,26 @@ final class AIChatTests: XCTestCase {
 
         let sentPrompt = await recorder.systemPrompt()
         XCTAssertEqual(sentPrompt, LanguageTopic.defaultSystemPrompt)
+    }
+
+    func testDefaultSessionUsesConfiguredPrompt() async {
+        let recorder = MessageRecorder()
+        let configuration = ChatFeatureConfiguration(
+            topics: [],
+            defaultSystemPrompt: "Practice with a host-app default prompt.",
+            openingRequest: "Start.",
+            maxContextMessages: 12
+        )
+        let sut = makeViewModel(
+            chatService: RecordingChatService(recorder: recorder, response: "Configured answer"),
+            configuration: configuration
+        )
+
+        await sut.load()
+        await sut.sendMessage("Hello")
+
+        let sentPrompt = await recorder.systemPrompt()
+        XCTAssertEqual(sentPrompt, "Practice with a host-app default prompt.")
     }
 
     func testServiceErrorMessageIsNotStoredInNextContext() async {
@@ -410,46 +528,54 @@ final class AIChatTests: XCTestCase {
     }
 
     private func makeViewModel(
-        chatService: any ChatServing = StubChatService(response: "OK")
+        chatService: any ChatServing = StubChatService(response: "OK"),
+        configuration: ChatFeatureConfiguration = .englishPractice
     ) -> ChatViewModel {
         makeViewModel(
             store: InMemoryChatStore(),
             chatService: chatService,
-            networkAccessAuthorizer: StubNetworkAccessAuthorizer()
+            networkAccessAuthorizer: StubNetworkAccessAuthorizer(),
+            configuration: configuration
         )
     }
 
     private func makeViewModel(
         chatService: any ChatServing = StubChatService(response: "OK"),
-        networkAccessAuthorizer: any NetworkAccessAuthorizing
+        networkAccessAuthorizer: any NetworkAccessAuthorizing,
+        configuration: ChatFeatureConfiguration = .englishPractice
     ) -> ChatViewModel {
         makeViewModel(
             store: InMemoryChatStore(),
             chatService: chatService,
-            networkAccessAuthorizer: networkAccessAuthorizer
+            networkAccessAuthorizer: networkAccessAuthorizer,
+            configuration: configuration
         )
     }
 
     private func makeViewModel(
         store: any ChatStoring,
-        chatService: any ChatServing = StubChatService(response: "OK")
+        chatService: any ChatServing = StubChatService(response: "OK"),
+        configuration: ChatFeatureConfiguration = .englishPractice
     ) -> ChatViewModel {
         makeViewModel(
             store: store,
             chatService: chatService,
-            networkAccessAuthorizer: StubNetworkAccessAuthorizer()
+            networkAccessAuthorizer: StubNetworkAccessAuthorizer(),
+            configuration: configuration
         )
     }
 
     private func makeViewModel(
         store: any ChatStoring,
         chatService: any ChatServing = StubChatService(response: "OK"),
-        networkAccessAuthorizer: any NetworkAccessAuthorizing
+        networkAccessAuthorizer: any NetworkAccessAuthorizing,
+        configuration: ChatFeatureConfiguration = .englishPractice
     ) -> ChatViewModel {
         ChatViewModel(
             chatStore: store,
             chatService: chatService,
-            networkAccessAuthorizer: networkAccessAuthorizer
+            networkAccessAuthorizer: networkAccessAuthorizer,
+            configuration: configuration
         )
     }
 

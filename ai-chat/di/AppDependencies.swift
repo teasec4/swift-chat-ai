@@ -13,14 +13,18 @@ struct AppDependencies {
     let chatStore: any ChatStoring
     let chatService: any ChatServing
     let networkAccessAuthorizer: any NetworkAccessAuthorizing
+    let chatConfiguration: ChatFeatureConfiguration
     let modelContainer: ModelContainer
 
     static func live() throws -> AppDependencies {
         let container = try makeModelContainer(isStoredInMemoryOnly: false)
+        let chatConfiguration = ChatFeatureConfiguration.englishPractice
+        let serviceConfiguration = DeepSeekChatService.Configuration.live
         return AppDependencies(
             chatStore: SwiftDataChatStore(modelContext: ModelContext(container)),
-            chatService: DeepSeekChatService(),
-            networkAccessAuthorizer: NetworkAccessAuthorizer(),
+            chatService: DeepSeekChatService(configuration: serviceConfiguration),
+            networkAccessAuthorizer: NetworkAccessAuthorizer(probeURL: serviceConfiguration.availabilityProbeURL),
+            chatConfiguration: chatConfiguration,
             modelContainer: container
         )
     }
@@ -28,11 +32,13 @@ struct AppDependencies {
     static func preview() -> AppDependencies {
         let store = InMemoryChatStore.preview
         let container = try! makeModelContainer(isStoredInMemoryOnly: true)
+        let chatConfiguration = ChatFeatureConfiguration.englishPractice
 
         return AppDependencies(
             chatStore: store,
             chatService: PreviewChatService(),
             networkAccessAuthorizer: PreviewNetworkAccessAuthorizer(),
+            chatConfiguration: chatConfiguration,
             modelContainer: container
         )
     }

@@ -14,6 +14,7 @@ struct MessageInputBar: View {
     let canSend: Bool
     let focus: FocusState<Bool>.Binding
     let onSend: () -> Void
+    let onCancel: () -> Void
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 12) {
@@ -36,28 +37,28 @@ struct MessageInputBar: View {
                 }
                 .accessibilityIdentifier("messageInput")
 
-            Button(action: onSend) {
-                ZStack {
-                    Image(systemName: "paperplane.fill")
-                        .opacity(isSending ? 0 : 1)
-
-                    if isSending {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(.white)
-                    }
-                }
-                .frame(width: 20, height: 20)
+            Button(action: buttonAction) {
+                Image(systemName: isSending ? "stop.fill" : "paperplane.fill")
+                    .frame(width: 20, height: 20)
+                    .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.borderedProminent)
             .buttonBorderShape(.circle)
             .controlSize(.large)
-            .disabled(canSend == false || isSending)
-            .accessibilityLabel("Send")
+            .disabled(isSending == false && canSend == false)
+            .accessibilityLabel(isSending ? "Stop response" : "Send")
             .accessibilityIdentifier("sendButton")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(.regularMaterial)
+    }
+
+    private func buttonAction() {
+        if isSending {
+            onCancel()
+        } else {
+            onSend()
+        }
     }
 }

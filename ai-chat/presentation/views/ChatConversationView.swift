@@ -21,16 +21,29 @@ struct ChatConversationView: View {
             } else {
                 ChatTranscriptView(
                     messages: viewModel.messages,
-                    isResponding: viewModel.isResponding
+                    isResponding: viewModel.isSelectedSessionResponding
                 )
                     .safeAreaInset(edge: .bottom, spacing: 0) {
-                        MessageInputBar(
-                            text: $draft,
-                            isSending: viewModel.isResponding,
-                            canSend: viewModel.canSend(draft),
-                            focus: $isInputFocused,
-                            onSend: sendMessage
-                        )
+                        VStack(spacing: 0) {
+                            if let errorNotice = viewModel.selectedSessionError {
+                                ChatErrorBanner(
+                                    notice: errorNotice,
+                                    onRetry: retryFailedRequest,
+                                    onDismiss: viewModel.dismissErrorForSelectedSession
+                                )
+                                .padding(.horizontal, 16)
+                                .padding(.top, 8)
+                            }
+
+                            MessageInputBar(
+                                text: $draft,
+                                isSending: viewModel.isSelectedSessionResponding,
+                                canSend: viewModel.canSend(draft),
+                                focus: $isInputFocused,
+                                onSend: sendMessage,
+                                onCancel: cancelResponse
+                            )
+                        }
                     }
             }
         }
@@ -70,8 +83,7 @@ struct ChatConversationView: View {
     }
 
     private var currentTopic: LanguageTopic? {
-        guard let topicID = viewModel.selectedSession?.topicID else { return nil }
-        return LanguageTopic.all.first { $0.id == topicID }
+        viewModel.topic(for: viewModel.selectedSession)
     }
 
     private var isShowingFreshSessionConfirmation: Binding<Bool> {
@@ -96,6 +108,18 @@ struct ChatConversationView: View {
         }
     }
 
+    private func cancelResponse() {
+        viewModel.cancelResponseForSelectedSession()
+        isInputFocused = true
+    }
+
+    private func retryFailedRequest() {
+        Task {
+            await viewModel.retryFailedRequestForSelectedSession()
+            isInputFocused = true
+        }
+    }
+
     private func startFreshSession(with topic: LanguageTopic) {
         topicPendingFreshSession = nil
         draft = ""
@@ -105,5 +129,54 @@ struct ChatConversationView: View {
                 await viewModel.startConversation(in: sessionID)
             }
         }
+    }
+}
+
+private struct ChatErrorBanner: View {
+    let notice: ChatErrorNotice
+    let onRetry: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+
+            Text(notice.message)
+                .font(.footnote)
+                .foregroundStyle(.primary)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 8)
+
+            if notice.canRetry {
+                Button(action: onRetry) {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+                .controlSize(.small)
+                .accessibilityLabel("Retry")
+            }
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .background(
+            Color(.secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(.quaternary, lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
     }
 }

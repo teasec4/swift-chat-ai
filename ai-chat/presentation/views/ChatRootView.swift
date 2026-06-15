@@ -41,7 +41,8 @@ struct ChatRootView: View {
         viewModel: ChatViewModel(
             chatStore: dependencies.chatStore,
             chatService: dependencies.chatService,
-            networkAccessAuthorizer: dependencies.networkAccessAuthorizer
+            networkAccessAuthorizer: dependencies.networkAccessAuthorizer,
+            configuration: dependencies.chatConfiguration
         )
     )
     .modelContainer(dependencies.modelContainer)

@@ -23,7 +23,7 @@ struct HomeTabView: View {
         NavigationStack(path: $path) {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(LanguageTopic.all) { topic in
+                    ForEach(viewModel.topics) { topic in
                         Button {
                             handleTopicTap(topic)
                         } label: {
