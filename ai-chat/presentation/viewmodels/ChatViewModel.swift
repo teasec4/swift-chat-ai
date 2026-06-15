@@ -434,6 +434,14 @@ final class ChatViewModel {
                     await MainActor.run {
                         partialResponsesBySessionID[sessionID] = nil
                     }
+
+                    do {
+                        return try await chatService
+                            .response(for: context, systemPrompt: systemPrompt)
+                            .keepingCorrections(for: correctionTarget)
+                    } catch ChatServiceError.emptyResponse {
+                        continue
+                    }
                 }
             }
         }

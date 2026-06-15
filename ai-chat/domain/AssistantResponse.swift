@@ -23,6 +23,7 @@ struct AssistantResponse: Codable, Hashable, Sendable {
     Return only one valid JSON object. Do not wrap it in Markdown.
     The JSON object must always include a non-empty "reply" string.
     Never return {}, null, an empty string, or a JSON object with an empty reply.
+    Previous assistant messages may appear as plain conversation text. Still return the next assistant response as this JSON object.
 
     JSON schema:
     {

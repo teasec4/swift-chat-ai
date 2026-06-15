@@ -362,6 +362,11 @@ nonisolated struct DeepSeekStreamingResponseParser: Sendable {
             return .completed(AssistantResponse(reply: partialReply))
         }
 
+        if let response = responseParser.response(from: accumulatedContent),
+           response.reply.isEmpty == false {
+            return .completed(response)
+        }
+
         throw ChatServiceError.emptyResponse
     }
 }

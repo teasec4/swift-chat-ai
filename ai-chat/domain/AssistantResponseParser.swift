@@ -17,6 +17,8 @@ struct AssistantResponseParser: Sendable {
             return structuredResponse
         }
 
+        guard content.looksLikeJSONContainer == false else { return nil }
+
         return AssistantResponse(reply: content)
     }
 
@@ -123,6 +125,13 @@ private extension String {
         }
 
         return String(self[startIndex...endIndex]).trimmedNonEmpty
+    }
+
+    nonisolated var looksLikeJSONContainer: Bool {
+        guard let trimmed = trimmedNonEmpty else { return false }
+
+        return (trimmed.hasPrefix("{") && trimmed.hasSuffix("}"))
+            || (trimmed.hasPrefix("[") && trimmed.hasSuffix("]"))
     }
 
     nonisolated func jsonStringValuePrefix(forKey key: String) -> String? {
