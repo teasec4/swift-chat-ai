@@ -19,7 +19,7 @@ struct ChatFeatureConfiguration: Hashable, Sendable {
         rolePlayScenarios: [RolePlayScenario] = RolePlayScenario.all,
         defaultSystemPrompt: String = LanguageTopic.defaultSystemPrompt,
         openingRequest: String = LanguageTopic.openingRequest,
-        maxContextMessages: Int = 12
+        maxContextMessages: Int = 24
     ) {
         self.topics = topics
         self.rolePlayScenarios = rolePlayScenarios

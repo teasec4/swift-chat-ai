@@ -52,7 +52,6 @@ struct ChatConversationView: View {
         .navigationTitle(viewModel.selectedSession?.title ?? "Chat")
         .navigationBarTitleDisplayMode(.inline)
         .background(Color(.systemGroupedBackground))
-        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             if let currentTopic {
                 ToolbarItem(placement: .topBarTrailing) {

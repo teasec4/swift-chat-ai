@@ -392,28 +392,39 @@ final class ChatViewModel {
 
         let systemPrompt = systemPrompt(for: sessionID)
         let task = Task {
-            var completedResponse: AssistantResponse?
+            var emptyResponseRetriesRemaining = 1
 
-            for try await event in chatService.responseEvents(for: context, systemPrompt: systemPrompt) {
-                try Task.checkCancellation()
+            while true {
+                do {
+                    var completedResponse: AssistantResponse?
 
-                switch event {
-                case let .partial(content):
-                    await MainActor.run {
-                        partialResponsesBySessionID[sessionID] = content
+                    for try await event in chatService.responseEvents(for: context, systemPrompt: systemPrompt) {
+                        try Task.checkCancellation()
+
+                        switch event {
+                        case let .partial(content):
+                            await MainActor.run {
+                                partialResponsesBySessionID[sessionID] = content
+                            }
+                        case let .completed(response):
+                            completedResponse = response
+                        }
                     }
-                case let .completed(response):
-                    completedResponse = response
+
+                    try Task.checkCancellation()
+
+                    guard let completedResponse else {
+                        throw ChatResponseStreamError.missingCompletedResponse
+                    }
+
+                    return completedResponse
+                } catch ChatServiceError.emptyResponse where emptyResponseRetriesRemaining > 0 {
+                    emptyResponseRetriesRemaining -= 1
+                    await MainActor.run {
+                        partialResponsesBySessionID[sessionID] = nil
+                    }
                 }
             }
-
-            try Task.checkCancellation()
-
-            guard let completedResponse else {
-                throw ChatResponseStreamError.missingCompletedResponse
-            }
-
-            return completedResponse
         }
         responseTasksBySessionID[sessionID] = task
         respondingSessionIDs.insert(sessionID)

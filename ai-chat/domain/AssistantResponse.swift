@@ -21,6 +21,8 @@ struct AssistantResponse: Codable, Hashable, Sendable {
 
     nonisolated static let responseInstructions = """
     Return only one valid JSON object. Do not wrap it in Markdown.
+    The JSON object must always include a non-empty "reply" string.
+    Never return {}, null, an empty string, or a JSON object with an empty reply.
 
     JSON schema:
     {
@@ -36,6 +38,7 @@ struct AssistantResponse: Codable, Hashable, Sendable {
     }
 
     If the learner made no important mistakes, return an empty corrections array.
+    If you are unsure what to say, ask one simple follow-up question in "reply" and return an empty corrections array.
     """
 
     private enum CodingKeys: String, CodingKey {
