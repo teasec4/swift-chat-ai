@@ -13,17 +13,22 @@ struct AssistantResponseParser: Sendable {
     nonisolated func response(from modelContent: String) -> AssistantResponse? {
         guard let content = modelContent.trimmedNonEmpty else { return nil }
 
-        if let structuredResponse = decodeStructuredResponse(from: content) {
+        if let structuredResponse = structuredResponse(from: content) {
             return structuredResponse
         }
 
         return AssistantResponse(reply: content)
     }
 
+    nonisolated func structuredResponse(from modelContent: String) -> AssistantResponse? {
+        guard let content = modelContent.trimmedNonEmpty else { return nil }
+        return decodeStructuredResponse(from: content)
+    }
+
     nonisolated func partialReply(from modelContent: String) -> String? {
         guard let content = modelContent.trimmedNonEmpty else { return nil }
 
-        if let structuredResponse = decodeStructuredResponse(from: content) {
+        if let structuredResponse = structuredResponse(from: content) {
             return structuredResponse.reply.trimmedNonEmpty
         }
 

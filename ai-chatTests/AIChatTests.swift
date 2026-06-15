@@ -169,6 +169,61 @@ final class AIChatTests: XCTestCase {
         XCTAssertEqual(sut.messages.map(\.content), ["Stream this", "Final streamed answer"])
     }
 
+    func testDeepSeekStreamingParserYieldsPartialReplyAndCompletedResponse() throws {
+        var parser = DeepSeekStreamingResponseParser()
+
+        XCTAssertEqual(try parser.events(fromServerSentEventLine: "event: ping"), [])
+        XCTAssertEqual(try parser.events(fromServerSentEventLine: ""), [])
+        XCTAssertEqual(
+            try parser.events(fromServerSentEventLine: deepSeekStreamLine(content: #"{"reply":"Hel"#)),
+            [.partial("Hel")]
+        )
+        XCTAssertEqual(
+            try parser.events(fromServerSentEventLine: deepSeekStreamLine(content: #"lo","corrections":["#)),
+            [.partial("Hello")]
+        )
+        XCTAssertEqual(
+            try parser.events(fromServerSentEventLine: deepSeekStreamLine(content: #"{"original":"I am agree","corrected":"I agree"}]}"#)),
+            []
+        )
+
+        XCTAssertEqual(
+            try parser.events(fromServerSentEventLine: "data: [DONE]"),
+            [
+                .completed(
+                    AssistantResponse(
+                        reply: "Hello",
+                        corrections: [
+                            MessageCorrection(
+                                original: "I am agree",
+                                corrected: "I agree"
+                            )
+                        ]
+                    )
+                )
+            ]
+        )
+        XCTAssertEqual(try parser.events(fromServerSentEventLine: "data: [DONE]"), [])
+        XCTAssertEqual(
+            try parser.events(fromServerSentEventLine: deepSeekStreamLine(content: #"{"reply":"Late"}"#)),
+            []
+        )
+        XCTAssertNil(try parser.finishIfNeeded())
+    }
+
+    func testDeepSeekStreamingParserRejectsMalformedFinalJSON() throws {
+        var parser = DeepSeekStreamingResponseParser()
+
+        XCTAssertEqual(
+            try parser.events(fromServerSentEventLine: deepSeekStreamLine(content: #"{"reply":"Still writing"#)),
+            [.partial("Still writing")]
+        )
+
+        XCTAssertThrowsError(try parser.finishIfNeeded()) { error in
+            XCTAssertEqual(error as? ChatServiceError, .emptyResponse)
+        }
+    }
+
     func testSwitchingSessionsScopesResponseState() async {
         let sut = makeViewModel(chatService: SuspendedChatService())
 
@@ -659,6 +714,11 @@ final class AIChatTests: XCTestCase {
         }
 
         XCTAssertTrue(condition(), file: file, line: line)
+    }
+
+    private func deepSeekStreamLine(content: String) throws -> String {
+        let encodedContent = try XCTUnwrap(String(data: JSONEncoder().encode(content), encoding: .utf8))
+        return #"data: {"choices":[{"delta":{"content":\#(encodedContent)}}]}"#
     }
 }
 
