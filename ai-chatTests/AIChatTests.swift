@@ -556,6 +556,25 @@ final class AIChatTests: XCTestCase {
         XCTAssertEqual(response?.corrections, [])
     }
 
+    func testAssistantResponseParserExtractsPartialReplyFromJSON() {
+        let parser = AssistantResponseParser.standard
+        let rawPartialResponse = """
+        {
+          "reply": "Nice start! What do you
+        """
+
+        XCTAssertEqual(
+            parser.partialReply(from: rawPartialResponse),
+            "Nice start! What do you"
+        )
+    }
+
+    func testAssistantResponseParserDoesNotExposeRawPartialJSON() {
+        let parser = AssistantResponseParser.standard
+
+        XCTAssertNil(parser.partialReply(from: #"{"corrections":["#))
+    }
+
     func testNetworkedChatApprovalAndPreparationUseAuthorizer() async throws {
         let authorizer = StubNetworkAccessAuthorizer(hasUserApproval: false)
         let sut = makeViewModel(networkAccessAuthorizer: authorizer)

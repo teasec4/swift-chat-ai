@@ -19,16 +19,6 @@ struct AssistantResponse: Codable, Hashable, Sendable {
         self.corrections = corrections.filter { $0.isEmpty == false }
     }
 
-    nonisolated static func make(from modelContent: String) -> AssistantResponse? {
-        guard let content = modelContent.trimmedNonEmpty else { return nil }
-
-        if let structuredResponse = decodeStructuredResponse(from: content) {
-            return structuredResponse
-        }
-
-        return AssistantResponse(reply: content)
-    }
-
     nonisolated static let responseInstructions = """
     Return only one valid JSON object. Do not wrap it in Markdown.
 
@@ -126,25 +116,6 @@ struct MessageCorrection: Codable, Hashable, Sendable {
     }
 }
 
-private extension AssistantResponse {
-    nonisolated static func decodeStructuredResponse(from content: String) -> AssistantResponse? {
-        let decoder = JSONDecoder()
-
-        for candidate in content.jsonCandidates {
-            guard let data = candidate.data(using: .utf8),
-                  let response = try? decoder.decode(AssistantResponse.self, from: data),
-                  response.reply.isEmpty == false
-            else {
-                continue
-            }
-
-            return response
-        }
-
-        return nil
-    }
-}
-
 private extension KeyedDecodingContainer {
     nonisolated func decodeFirstTrimmedString(for keys: [Key]) -> String? {
         for key in keys {
@@ -169,44 +140,5 @@ private extension String {
     nonisolated var trimmedNonEmpty: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-
-    nonisolated var jsonCandidates: [String] {
-        [
-            trimmedNonEmpty,
-            removingMarkdownFence,
-            firstJSONObject
-        ]
-        .compactMap { $0 }
-        .reduce(into: []) { candidates, candidate in
-            guard candidates.contains(candidate) == false else { return }
-            candidates.append(candidate)
-        }
-    }
-
-    nonisolated var removingMarkdownFence: String? {
-        guard let trimmed = trimmedNonEmpty, trimmed.hasPrefix("```") else { return nil }
-
-        var lines = trimmed.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        guard lines.isEmpty == false else { return nil }
-
-        lines.removeFirst()
-
-        if lines.last?.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("```") == true {
-            lines.removeLast()
-        }
-
-        return lines.joined(separator: "\n").trimmedNonEmpty
-    }
-
-    nonisolated var firstJSONObject: String? {
-        guard let startIndex = firstIndex(of: "{"),
-              let endIndex = lastIndex(of: "}"),
-              startIndex <= endIndex
-        else {
-            return nil
-        }
-
-        return String(self[startIndex...endIndex]).trimmedNonEmpty
     }
 }
