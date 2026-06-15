@@ -8,6 +8,8 @@
 import Foundation
 
 struct RolePlayScenario: Identifiable, Hashable, Sendable {
+    nonisolated private static let sessionTopicIDPrefix = "role-play."
+
     let id: String
     let title: String
     let subtitle: String
@@ -35,7 +37,15 @@ struct RolePlayScenario: Identifiable, Hashable, Sendable {
     }
 
     nonisolated var sessionTopicID: String {
-        "role-play.\(id)"
+        Self.sessionTopicIDPrefix + id
+    }
+
+    nonisolated static let genericOpeningRequest = """
+    Start this role play now. Stay in character, set the scene in one short sentence, and ask exactly one natural first question. Do not explain the rules.
+    """
+
+    nonisolated static func isRolePlayTopicID(_ topicID: String) -> Bool {
+        topicID.hasPrefix(sessionTopicIDPrefix)
     }
 
     nonisolated var openingRequest: String {
@@ -62,6 +72,35 @@ struct RolePlayScenario: Identifiable, Hashable, Sendable {
         - If the learner writes in Russian, briefly clarify in Russian, then return to English practice.
         - Do not ask for real private identifiers, passport numbers, payment card numbers, or other sensitive data.
         """
+    }
+
+    nonisolated static func custom(
+        scenario: String,
+        assistantRole: String,
+        learnerRole: String,
+        additionalDetail: String?
+    ) -> RolePlayScenario {
+        let trimmedScenario = sanitized(scenario)
+        let trimmedAssistantRole = sanitized(assistantRole)
+        let trimmedLearnerRole = sanitized(learnerRole)
+        let trimmedAdditionalDetail = sanitized(additionalDetail ?? "")
+        let situation: String
+
+        if trimmedAdditionalDetail.isEmpty {
+            situation = trimmedScenario
+        } else {
+            situation = "\(trimmedScenario)\nAdditional detail: \(trimmedAdditionalDetail)"
+        }
+
+        return RolePlayScenario(
+            id: "custom.\(UUID().uuidString.lowercased())",
+            title: trimmedScenario,
+            subtitle: "Custom scenario",
+            iconName: "wand.and.sparkles",
+            assistantRole: trimmedAssistantRole,
+            learnerRole: trimmedLearnerRole,
+            situation: situation
+        )
     }
 
     nonisolated static let all: [RolePlayScenario] = [
@@ -93,4 +132,8 @@ struct RolePlayScenario: Identifiable, Hashable, Sendable {
             situation: "A routine border-control conversation about trip purpose, stay length, accommodation, and return plans."
         )
     ]
+
+    nonisolated private static func sanitized(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }

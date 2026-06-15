@@ -365,7 +365,17 @@ final class ChatViewModel {
 
     private func openingRequest(for sessionID: ChatSession.ID) -> String {
         let session = sessions.first { $0.id == sessionID }
-        return configuration.rolePlayScenario(for: session)?.openingRequest ?? configuration.openingRequest
+
+        if let rolePlayScenario = configuration.rolePlayScenario(for: session) {
+            return rolePlayScenario.openingRequest
+        }
+
+        if let topicID = session?.topicID,
+           RolePlayScenario.isRolePlayTopicID(topicID) {
+            return RolePlayScenario.genericOpeningRequest
+        }
+
+        return configuration.openingRequest
     }
 
     private func sessionDraft(topic: LanguageTopic?) -> ChatSessionDraft {
