@@ -15,27 +15,15 @@ struct ProgressTabView: View {
             List {
                 Section {
                     ForEach(FeedbackCorrectionCategory.allCases) { category in
-                        let items = feedbackCenter.items(in: category)
-
-                        DisclosureGroup {
-                            if items.isEmpty {
-                                EmptyFeedbackCategoryRow()
-                            } else {
-                                ForEach(items) { item in
-                                    FeedbackItemRow(item: item)
-                                        .swipeActions {
-                                            Button(role: .destructive) {
-                                                feedbackCenter.delete(itemID: item.id)
-                                            } label: {
-                                                Label("Delete", systemImage: "trash")
-                                            }
-                                        }
-                                }
-                            }
+                        NavigationLink {
+                            FeedbackCategoryDetailView(
+                                category: category,
+                                feedbackCenter: feedbackCenter
+                            )
                         } label: {
                             FeedbackCategoryRow(
                                 category: category,
-                                savedCount: items.count
+                                savedCount: feedbackCenter.items(in: category).count
                             )
                         }
                     }
@@ -45,6 +33,35 @@ struct ProgressTabView: View {
             }
             .navigationTitle("Progress")
         }
+    }
+}
+
+private struct FeedbackCategoryDetailView: View {
+    let category: FeedbackCorrectionCategory
+    let feedbackCenter: FeedbackCenter
+
+    var body: some View {
+        List {
+            if items.isEmpty {
+                EmptyFeedbackCategoryRow()
+            } else {
+                ForEach(items) { item in
+                    FeedbackItemRow(item: item)
+                        .swipeActions {
+                            Button(role: .destructive) {
+                                feedbackCenter.delete(itemID: item.id)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                }
+            }
+        }
+        .navigationTitle(category.title)
+    }
+
+    private var items: [FeedbackItem] {
+        feedbackCenter.items(in: category)
     }
 }
 

@@ -31,12 +31,14 @@ struct AssistantResponse: Codable, Hashable, Sendable {
         {
           "original": "The learner phrase with the mistake.",
           "corrected": "A natural corrected version.",
-          "type": "grammar | vocabulary | word_order | spelling | style | other",
+          "type": "grammar | better_to_say",
           "explanation": "One short explanation."
         }
       ]
     }
 
+    Use "grammar" for grammar, spelling, and word-order issues.
+    Use "better_to_say" for vocabulary, style, clarity, and more natural phrasing.
     If the learner made no important mistakes, return an empty corrections array.
     If you are unsure what to say, ask one simple follow-up question in "reply" and return an empty corrections array.
     """

@@ -9,11 +9,7 @@ import Foundation
 
 enum FeedbackCorrectionCategory: String, CaseIterable, Codable, Identifiable, Sendable {
     case grammar
-    case vocabulary
-    case wordOrder = "word_order"
-    case spelling
-    case style
-    case other
+    case betterToSay = "better_to_say"
 
     nonisolated var id: String {
         rawValue
@@ -23,33 +19,17 @@ enum FeedbackCorrectionCategory: String, CaseIterable, Codable, Identifiable, Se
         switch self {
         case .grammar:
             "Grammar"
-        case .vocabulary:
-            "Vocabulary"
-        case .wordOrder:
-            "Word Order"
-        case .spelling:
-            "Spelling"
-        case .style:
-            "Style"
-        case .other:
-            "Other"
+        case .betterToSay:
+            "Better to Say"
         }
     }
 
     nonisolated var subtitle: String {
         switch self {
         case .grammar:
-            "Tenses, articles, agreement"
-        case .vocabulary:
-            "Word choice and natural phrasing"
-        case .wordOrder:
-            "Sentence structure and order"
-        case .spelling:
-            "Typos and written accuracy"
-        case .style:
-            "Tone, clarity, and fluency"
-        case .other:
-            "Useful notes that do not fit elsewhere"
+            "Grammar, spelling, and word order"
+        case .betterToSay:
+            "Vocabulary, style, and natural phrasing"
         }
     }
 
@@ -57,21 +37,13 @@ enum FeedbackCorrectionCategory: String, CaseIterable, Codable, Identifiable, Se
         switch self {
         case .grammar:
             "textformat"
-        case .vocabulary:
-            "character.book.closed"
-        case .wordOrder:
-            "arrow.left.arrow.right"
-        case .spelling:
-            "checkmark.seal"
-        case .style:
+        case .betterToSay:
             "sparkles"
-        case .other:
-            "ellipsis.circle"
         }
     }
 
     nonisolated static func make(from rawValue: String?) -> FeedbackCorrectionCategory {
-        guard let rawValue else { return .other }
+        guard let rawValue else { return .betterToSay }
 
         let normalized = rawValue
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -79,7 +51,14 @@ enum FeedbackCorrectionCategory: String, CaseIterable, Codable, Identifiable, Se
             .replacingOccurrences(of: "-", with: "_")
             .replacingOccurrences(of: " ", with: "_")
 
-        return FeedbackCorrectionCategory(rawValue: normalized) ?? .other
+        switch normalized {
+        case "grammar", "spelling", "word_order", "wordorder":
+            return .grammar
+        case "better_to_say", "better", "vocabulary", "style", "other":
+            return .betterToSay
+        default:
+            return .betterToSay
+        }
     }
 }
 
