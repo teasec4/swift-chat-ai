@@ -39,6 +39,8 @@ struct AssistantResponse: Codable, Hashable, Sendable {
 
     Use "grammar" for grammar, spelling, and word-order issues.
     Use "better_to_say" for vocabulary, style, clarity, and more natural phrasing.
+    Corrections must refer only to the learner's most recent user message. Do not include corrections for earlier messages.
+    The "original" value must be an exact phrase from the learner's most recent user message.
     If the learner made no important mistakes, return an empty corrections array.
     If you are unsure what to say, ask one simple follow-up question in "reply" and return an empty corrections array.
     """
@@ -64,6 +66,19 @@ struct AssistantResponse: Codable, Hashable, Sendable {
         try container.encode(reply, forKey: .reply)
         try container.encode(corrections, forKey: .corrections)
     }
+
+    nonisolated func keepingCorrections(for learnerMessage: String?) -> AssistantResponse {
+        guard let learnerMessage,
+              learnerMessage.trimmedNonEmpty != nil
+        else {
+            return AssistantResponse(reply: reply)
+        }
+
+        return AssistantResponse(
+            reply: reply,
+            corrections: corrections.filter { $0.belongs(to: learnerMessage) }
+        )
+    }
 }
 
 struct MessageCorrection: Codable, Hashable, Sendable {
@@ -86,6 +101,11 @@ struct MessageCorrection: Codable, Hashable, Sendable {
 
     nonisolated var isEmpty: Bool {
         original.isEmpty && corrected.isEmpty
+    }
+
+    nonisolated func belongs(to learnerMessage: String) -> Bool {
+        guard original.trimmedNonEmpty != nil else { return false }
+        return learnerMessage.containsCorrectionPhrase(original)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -145,5 +165,45 @@ private extension String {
     nonisolated var trimmedNonEmpty: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    nonisolated var correctionMatchTokens: [String] {
+        lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.isEmpty == false }
+    }
+
+    nonisolated var normalizedForCorrectionMatch: String {
+        correctionMatchTokens.joined(separator: " ")
+    }
+
+    nonisolated func containsCorrectionPhrase(_ phrase: String) -> Bool {
+        let messageTokens = correctionMatchTokens
+        let phraseTokens = phrase.correctionMatchTokens
+
+        guard messageTokens.isEmpty == false,
+              phraseTokens.isEmpty == false
+        else {
+            return false
+        }
+
+        let normalizedMessage = " \(normalizedForCorrectionMatch) "
+        let normalizedPhrase = " \(phrase.normalizedForCorrectionMatch) "
+
+        if normalizedMessage.contains(normalizedPhrase) {
+            return true
+        }
+
+        var searchIndex = messageTokens.startIndex
+
+        for phraseToken in phraseTokens {
+            guard let foundIndex = messageTokens[searchIndex...].firstIndex(of: phraseToken) else {
+                return false
+            }
+
+            searchIndex = messageTokens.index(after: foundIndex)
+        }
+
+        return true
     }
 }

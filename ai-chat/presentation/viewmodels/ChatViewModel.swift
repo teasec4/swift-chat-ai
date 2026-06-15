@@ -400,6 +400,7 @@ final class ChatViewModel {
             return
         }
 
+        let correctionTarget = correctionTargetMessageContent(for: failedRequest, in: context)
         let systemPrompt = systemPrompt(for: sessionID)
         let task = Task {
             var emptyResponseRetriesRemaining = 1
@@ -417,7 +418,7 @@ final class ChatViewModel {
                                 partialResponsesBySessionID[sessionID] = content
                             }
                         case let .completed(response):
-                            completedResponse = response
+                            completedResponse = response.keepingCorrections(for: correctionTarget)
                         }
                     }
 
@@ -457,6 +458,18 @@ final class ChatViewModel {
 
         clearResponseTask(for: sessionID)
         appendAssistantResponse(assistantResponse, to: sessionID)
+    }
+
+    private func correctionTargetMessageContent(
+        for failedRequest: FailedAssistantRequest,
+        in context: [ChatMessage]
+    ) -> String? {
+        switch failedRequest {
+        case .opening:
+            nil
+        case .latestMessages:
+            context.last { $0.role == .user }?.content
+        }
     }
 
     private func appendAssistantResponse(_ assistantResponse: AssistantResponse, to sessionID: ChatSession.ID) {
