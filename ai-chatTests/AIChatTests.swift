@@ -51,6 +51,20 @@ final class AIChatTests: XCTestCase {
         XCTAssertEqual(sut.messages.last?.corrections, [correction])
     }
 
+    func testDefaultResponseEventsWrapCompletedResponse() async throws {
+        let service = StubChatService(response: "Wrapped response")
+        var events: [ChatResponseEvent] = []
+
+        for try await event in service.responseEvents(
+            for: [ChatMessage(content: "Hello", role: .user)],
+            systemPrompt: "Prompt"
+        ) {
+            events.append(event)
+        }
+
+        XCTAssertEqual(events, [.completed(AssistantResponse(reply: "Wrapped response"))])
+    }
+
     func testSendMessageIgnoresEmptyContent() async {
         let sut = makeViewModel(chatService: StubChatService(response: "Ignored"))
 
@@ -125,6 +139,34 @@ final class AIChatTests: XCTestCase {
         XCTAssertFalse(sut.isResponding)
         XCTAssertEqual(sut.messages.map(\.content), ["Please answer later"])
         XCTAssertNil(sut.selectedSessionError)
+    }
+
+    func testStreamingPartialResponseIsScopedAndClearedOnCompletion() async {
+        let service = ControlledStreamingChatService()
+        let sut = makeViewModel(chatService: service)
+
+        await sut.load()
+
+        let task = Task {
+            await sut.sendMessage("Stream this")
+        }
+
+        await service.waitUntilStarted()
+        await service.yieldPartial("Thinking")
+        await waitUntil { sut.selectedPartialResponse == "Thinking" }
+
+        XCTAssertEqual(sut.messages.map(\.content), ["Stream this"])
+        XCTAssertTrue(sut.isSelectedSessionResponding)
+
+        await service.yieldPartial("Thinking harder")
+        await waitUntil { sut.selectedPartialResponse == "Thinking harder" }
+
+        await service.finish(with: AssistantResponse(reply: "Final streamed answer"))
+        await task.value
+
+        XCTAssertNil(sut.selectedPartialResponse)
+        XCTAssertFalse(sut.isResponding)
+        XCTAssertEqual(sut.messages.map(\.content), ["Stream this", "Final streamed answer"])
     }
 
     func testSwitchingSessionsScopesResponseState() async {
@@ -718,5 +760,64 @@ private actor FailingOnceState {
 
     func messagesFromLastRequest() -> [ChatMessage] {
         lastMessages
+    }
+}
+
+private struct ControlledStreamingChatService: ChatServing {
+    private let state = ControlledStreamingState()
+
+    nonisolated func response(for messages: [ChatMessage], systemPrompt: String) async throws -> AssistantResponse {
+        AssistantResponse(reply: "Unused")
+    }
+
+    nonisolated func responseEvents(
+        for messages: [ChatMessage],
+        systemPrompt: String
+    ) -> AsyncThrowingStream<ChatResponseEvent, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                await state.setContinuation(continuation)
+            }
+        }
+    }
+
+    func waitUntilStarted() async {
+        await state.waitUntilStarted()
+    }
+
+    func yieldPartial(_ content: String) async {
+        await state.yield(.partial(content))
+    }
+
+    func finish(with response: AssistantResponse) async {
+        await state.finish(with: response)
+    }
+}
+
+private actor ControlledStreamingState {
+    private var continuation: AsyncThrowingStream<ChatResponseEvent, Error>.Continuation?
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func setContinuation(_ continuation: AsyncThrowingStream<ChatResponseEvent, Error>.Continuation) {
+        self.continuation = continuation
+        waiters.forEach { $0.resume() }
+        waiters.removeAll()
+    }
+
+    func waitUntilStarted() async {
+        guard continuation == nil else { return }
+
+        await withCheckedContinuation { waiter in
+            waiters.append(waiter)
+        }
+    }
+
+    func yield(_ event: ChatResponseEvent) {
+        continuation?.yield(event)
+    }
+
+    func finish(with response: AssistantResponse) {
+        continuation?.yield(.completed(response))
+        continuation?.finish()
     }
 }

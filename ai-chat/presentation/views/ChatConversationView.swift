@@ -21,7 +21,8 @@ struct ChatConversationView: View {
             } else {
                 ChatTranscriptView(
                     messages: viewModel.messages,
-                    isResponding: viewModel.isSelectedSessionResponding
+                    isResponding: viewModel.isSelectedSessionResponding,
+                    partialResponse: viewModel.selectedPartialResponse
                 )
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         VStack(spacing: 0) {

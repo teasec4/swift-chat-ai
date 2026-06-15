@@ -10,6 +10,7 @@ import SwiftUI
 struct ChatTranscriptView: View {
     let messages: [ChatMessage]
     let isResponding: Bool
+    let partialResponse: String?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -20,7 +21,10 @@ struct ChatTranscriptView: View {
                             .id(message.id)
                     }
 
-                    if isResponding {
+                    if let partialResponse {
+                        AssistantPartialBubbleView(text: partialResponse)
+                            .id(Self.partialBubbleID)
+                    } else if isResponding {
                         AssistantLoadingBubbleView()
                             .id(Self.loadingBubbleID)
                     }
@@ -42,10 +46,14 @@ struct ChatTranscriptView: View {
             .onChange(of: isResponding) { _, _ in
                 scheduleScrollToBottom(with: proxy)
             }
+            .onChange(of: partialResponse) { _, _ in
+                scheduleScrollToBottom(with: proxy)
+            }
         }
     }
 
     private static let loadingBubbleID = "assistant-loading-bubble"
+    private static let partialBubbleID = "assistant-partial-bubble"
 
     private func scheduleScrollToBottom(
         with proxy: ScrollViewProxy,
@@ -60,7 +68,9 @@ struct ChatTranscriptView: View {
     private func scrollToBottom(with proxy: ScrollViewProxy, animated: Bool = true) {
         let targetID: AnyHashable
 
-        if isResponding {
+        if partialResponse != nil {
+            targetID = Self.partialBubbleID
+        } else if isResponding {
             targetID = Self.loadingBubbleID
         } else if let lastMessageID = messages.last?.id {
             targetID = lastMessageID
@@ -75,6 +85,35 @@ struct ChatTranscriptView: View {
         } else {
             proxy.scrollTo(targetID, anchor: .bottom)
         }
+    }
+}
+
+private struct AssistantPartialBubbleView: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .bottom) {
+            HStack(alignment: .lastTextBaseline, spacing: 8) {
+                Text(text)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                    .textSelection(.enabled)
+
+                ProgressView()
+                    .controlSize(.small)
+            }
+                .padding(.vertical, 10)
+                .padding(.horizontal, 14)
+                .background(
+                    Color(.secondarySystemGroupedBackground),
+                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                )
+                .accessibilityLabel("Assistant: \(text)")
+
+            Spacer(minLength: 48)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .transition(.opacity)
     }
 }
 
