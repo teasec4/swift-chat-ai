@@ -12,6 +12,7 @@ struct ChatConversationView: View {
 
     @State private var draft = ""
     @State private var topicPendingFreshSession: LanguageTopic?
+    @State private var rolePlayScenarioPendingFreshSession: RolePlayScenario?
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
@@ -53,10 +54,19 @@ struct ChatConversationView: View {
         .background(Color(.systemGroupedBackground))
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
-            if currentTopic != nil {
+            if let currentTopic {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         topicPendingFreshSession = currentTopic
+                    } label: {
+                        Image(systemName: "plus.message")
+                    }
+                    .accessibilityLabel("Start Fresh Session")
+                }
+            } else if let currentRolePlayScenario {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        rolePlayScenarioPendingFreshSession = currentRolePlayScenario
                     } label: {
                         Image(systemName: "plus.message")
                     }
@@ -78,6 +88,20 @@ struct ChatConversationView: View {
         } message: { topic in
             Text("Your current \(topic.title) session will stay in Session History.")
         }
+        .confirmationDialog(
+            "Start a New Session?",
+            isPresented: isShowingFreshRolePlaySessionConfirmation,
+            titleVisibility: .visible,
+            presenting: rolePlayScenarioPendingFreshSession
+        ) { scenario in
+            Button("Start Fresh Session") {
+                startFreshSession(with: scenario)
+            }
+
+            Button("Cancel", role: .cancel) {}
+        } message: { scenario in
+            Text("Your current \(scenario.title) role play will stay in Session History.")
+        }
         .onChange(of: viewModel.selectedSessionID) { _, _ in
             draft = ""
         }
@@ -87,12 +111,26 @@ struct ChatConversationView: View {
         viewModel.topic(for: viewModel.selectedSession)
     }
 
+    private var currentRolePlayScenario: RolePlayScenario? {
+        viewModel.rolePlayScenario(for: viewModel.selectedSession)
+    }
+
     private var isShowingFreshSessionConfirmation: Binding<Bool> {
         Binding {
             topicPendingFreshSession != nil
         } set: { isPresented in
             if isPresented == false {
                 topicPendingFreshSession = nil
+            }
+        }
+    }
+
+    private var isShowingFreshRolePlaySessionConfirmation: Binding<Bool> {
+        Binding {
+            rolePlayScenarioPendingFreshSession != nil
+        } set: { isPresented in
+            if isPresented == false {
+                rolePlayScenarioPendingFreshSession = nil
             }
         }
     }
@@ -127,6 +165,17 @@ struct ChatConversationView: View {
 
         Task {
             if let sessionID = await viewModel.createSession(topic: topic) {
+                await viewModel.startConversation(in: sessionID)
+            }
+        }
+    }
+
+    private func startFreshSession(with scenario: RolePlayScenario) {
+        rolePlayScenarioPendingFreshSession = nil
+        draft = ""
+
+        Task {
+            if let sessionID = await viewModel.createSession(rolePlayScenario: scenario) {
                 await viewModel.startConversation(in: sessionID)
             }
         }

@@ -33,4 +33,13 @@ struct ChatSessionDraft: Hashable, Sendable {
             systemPrompt: topic?.systemPrompt ?? defaultSystemPrompt
         )
     }
+
+    init(rolePlayScenario scenario: RolePlayScenario) {
+        self.init(
+            title: scenario.title,
+            topicID: scenario.sessionTopicID,
+            topicTitle: scenario.title,
+            systemPrompt: scenario.systemPrompt
+        )
+    }
 }

@@ -48,6 +48,10 @@ final class ChatViewModel {
         configuration.topics
     }
 
+    var rolePlayScenarios: [RolePlayScenario] {
+        configuration.rolePlayScenarios
+    }
+
     var isResponding: Bool {
         respondingSessionIDs.isEmpty == false
     }
@@ -136,6 +140,19 @@ final class ChatViewModel {
     }
 
     @discardableResult
+    func createSession(rolePlayScenario scenario: RolePlayScenario) async -> ChatSession.ID? {
+        do {
+            let session = try chatStore.createSession(from: sessionDraft(rolePlayScenario: scenario))
+            try refreshSessions(selecting: session.id)
+            messages = []
+            return session.id
+        } catch {
+            showError(error, for: selectedSessionID, canRetry: false)
+            return nil
+        }
+    }
+
+    @discardableResult
     func openSession(for topic: LanguageTopic) async -> ChatSession.ID? {
         do {
             try refreshSessions()
@@ -147,6 +164,27 @@ final class ChatViewModel {
             }
 
             let session = try chatStore.createSession(from: sessionDraft(topic: topic))
+            try refreshSessions(selecting: session.id)
+            messages = []
+            return session.id
+        } catch {
+            showError(error, for: selectedSessionID, canRetry: false)
+            return nil
+        }
+    }
+
+    @discardableResult
+    func openSession(for scenario: RolePlayScenario) async -> ChatSession.ID? {
+        do {
+            try refreshSessions()
+
+            if let session = sessions.first(where: { $0.topicID == scenario.sessionTopicID }) {
+                selectedSessionID = session.id
+                try loadMessagesForSelectedSession()
+                return session.id
+            }
+
+            let session = try chatStore.createSession(from: sessionDraft(rolePlayScenario: scenario))
             try refreshSessions(selecting: session.id)
             messages = []
             return session.id
@@ -274,6 +312,10 @@ final class ChatViewModel {
         configuration.topic(for: session)
     }
 
+    func rolePlayScenario(for session: ChatSession?) -> RolePlayScenario? {
+        configuration.rolePlayScenario(for: session)
+    }
+
     func isResponding(in sessionID: ChatSession.ID) -> Bool {
         respondingSessionIDs.contains(sessionID)
     }
@@ -315,14 +357,23 @@ final class ChatViewModel {
     private func makeContext(for failedRequest: FailedAssistantRequest, sessionID: ChatSession.ID) throws -> [ChatMessage] {
         switch failedRequest {
         case .opening:
-            [ChatMessage(content: configuration.openingRequest, role: .user)]
+            [ChatMessage(content: openingRequest(for: sessionID), role: .user)]
         case .latestMessages:
             try recentContext(for: sessionID)
         }
     }
 
+    private func openingRequest(for sessionID: ChatSession.ID) -> String {
+        let session = sessions.first { $0.id == sessionID }
+        return configuration.rolePlayScenario(for: session)?.openingRequest ?? configuration.openingRequest
+    }
+
     private func sessionDraft(topic: LanguageTopic?) -> ChatSessionDraft {
         ChatSessionDraft(topic: topic, defaultSystemPrompt: configuration.defaultSystemPrompt)
+    }
+
+    private func sessionDraft(rolePlayScenario scenario: RolePlayScenario) -> ChatSessionDraft {
+        ChatSessionDraft(rolePlayScenario: scenario)
     }
 
     private func requestAssistantResponse(

@@ -23,6 +23,11 @@ struct ChatRootView: View {
                 Label("Home", systemImage: "house")
             }
 
+            RolePlayTabView(viewModel: viewModel)
+            .tabItem {
+                Label("Role Play", systemImage: "theatermasks")
+            }
+
             SettingsTabView(viewModel: viewModel)
             .tabItem {
                 Label("Settings", systemImage: "gearshape")
