@@ -236,9 +236,7 @@ struct DeepSeekChatService: ChatServing {
         )
     }
 
-    nonisolated private static let requestContextMapper = ChatRequestContextMapper(
-        assistantHistoryEncoding: .structuredResponseJSON
-    )
+    nonisolated private static let requestContextMapper = ChatRequestContextMapper()
 }
 
 enum ChatServiceError: LocalizedError, Equatable {

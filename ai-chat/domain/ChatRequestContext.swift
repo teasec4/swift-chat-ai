@@ -24,12 +24,6 @@ struct ChatRequestContextMessage: Codable, Hashable, Sendable {
 }
 
 struct ChatRequestContextMapper: Sendable {
-    let assistantHistoryEncoding: AssistantHistoryEncoding
-
-    nonisolated init(assistantHistoryEncoding: AssistantHistoryEncoding = .structuredResponseJSON) {
-        self.assistantHistoryEncoding = assistantHistoryEncoding
-    }
-
     nonisolated func requestMessages(
         from messages: [ChatMessage],
         systemPrompt: String,
@@ -54,10 +48,10 @@ struct ChatRequestContextMapper: Sendable {
     }
 
     private nonisolated func content(for message: ChatMessage) -> String {
-        switch (message.role, assistantHistoryEncoding) {
-        case (.assistant, .structuredResponseJSON):
+        switch message.role {
+        case .assistant:
             encodedAssistantResponse(from: message) ?? message.content
-        default:
+        case .user:
             message.content
         }
     }
@@ -68,11 +62,6 @@ struct ChatRequestContextMapper: Sendable {
         let response = AssistantResponse(reply: message.content, corrections: message.corrections)
         guard let data = try? JSONEncoder().encode(response) else { return nil }
         return String(data: data, encoding: .utf8)
-    }
-
-    enum AssistantHistoryEncoding: Hashable, Sendable {
-        case plainText
-        case structuredResponseJSON
     }
 }
 

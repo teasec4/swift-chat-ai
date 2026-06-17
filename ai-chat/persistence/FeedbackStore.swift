@@ -12,7 +12,8 @@ import SwiftData
 @MainActor
 protocol FeedbackStoring: AnyObject {
     func fetchItems() -> [FeedbackItem]
-    func saveItems(_ items: [FeedbackItem])
+    func saveItem(_ item: FeedbackItem)
+    func deleteItem(id: FeedbackItem.ID)
 }
 
 @MainActor
@@ -32,35 +33,29 @@ final class SwiftDataFeedbackStore: FeedbackStoring {
             .map(FeedbackItem.init(record:))
     }
 
-    func saveItems(_ items: [FeedbackItem]) {
-        let existingRecords = fetchRecords()
-        let itemsByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
-
-        for record in existingRecords where itemsByID[record.id] == nil {
-            modelContext.delete(record)
-        }
-
-        for item in items {
-            if let record = existingRecords.first(where: { $0.id == item.id }) {
-                record.update(from: item)
-            } else {
-                modelContext.insert(
-                    FeedbackItemRecord(
-                        id: item.id,
-                        correction: item.correction,
-                        sourceMessageID: item.sourceMessageID,
-                        createdAt: item.createdAt
-                    )
-                )
-            }
+    func saveItem(_ item: FeedbackItem) {
+        if let record = record(id: item.id) {
+            record.update(from: item)
+        } else {
+            modelContext.insert(FeedbackItemRecord(item: item))
         }
 
         try? modelContext.save()
     }
 
-    private func fetchRecords() -> [FeedbackItemRecord] {
-        let descriptor = FetchDescriptor<FeedbackItemRecord>()
-        return (try? modelContext.fetch(descriptor)) ?? []
+    func deleteItem(id: FeedbackItem.ID) {
+        guard let record = record(id: id) else { return }
+
+        modelContext.delete(record)
+        try? modelContext.save()
+    }
+
+    private func record(id: FeedbackItem.ID) -> FeedbackItemRecord? {
+        var descriptor = FetchDescriptor<FeedbackItemRecord>(
+            predicate: #Predicate { $0.id == id }
+        )
+        descriptor.fetchLimit = 1
+        return try? modelContext.fetch(descriptor).first
     }
 }
 
@@ -81,12 +76,12 @@ final class FeedbackCenter {
         guard contains(item) == false else { return }
 
         items.insert(item, at: 0)
-        store.saveItems(items)
+        store.saveItem(item)
     }
 
     func delete(itemID: FeedbackItem.ID) {
         items.removeAll { $0.id == itemID }
-        store.saveItems(items)
+        store.deleteItem(id: itemID)
     }
 
     func contains(correction: MessageCorrection, sourceMessageID: ChatMessage.ID? = nil) -> Bool {

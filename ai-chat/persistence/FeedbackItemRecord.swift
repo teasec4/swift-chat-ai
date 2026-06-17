@@ -33,6 +33,15 @@ final class FeedbackItemRecord {
         self.createdAt = createdAt
     }
 
+    convenience init(item: FeedbackItem) {
+        self.init(
+            id: item.id,
+            correction: item.correction,
+            sourceMessageID: item.sourceMessageID,
+            createdAt: item.createdAt
+        )
+    }
+
     func update(from item: FeedbackItem) {
         original = item.correction.original
         corrected = item.correction.corrected
