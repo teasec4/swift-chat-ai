@@ -36,7 +36,8 @@ struct SettingsTabView: View {
                 ChatSessionDestinationView(
                     viewModel: viewModel,
                     sessionID: sessionID,
-                    feedbackCenter: feedbackCenter
+                    feedbackCenter: feedbackCenter,
+                    onFreshSessionCreated: navigateToSessionInHistory
                 )
             }
         }
@@ -45,12 +46,16 @@ struct SettingsTabView: View {
     private func createSession() {
         Task {
             if let sessionID = await viewModel.createSession() {
-                var newPath = NavigationPath()
-                newPath.append(SettingsRoute.sessionHistory)
-                newPath.append(sessionID)
-                path = newPath
+                navigateToSessionInHistory(sessionID)
             }
         }
+    }
+
+    private func navigateToSessionInHistory(_ sessionID: ChatSession.ID) {
+        var newPath = NavigationPath()
+        newPath.append(SettingsRoute.sessionHistory)
+        newPath.append(sessionID)
+        path = newPath
     }
 }
 

@@ -49,7 +49,10 @@ struct HomeTabView: View {
                 ChatSessionDestinationView(
                     viewModel: viewModel,
                     sessionID: sessionID,
-                    feedbackCenter: feedbackCenter
+                    feedbackCenter: feedbackCenter,
+                    onFreshSessionCreated: { freshSessionID in
+                        path = [freshSessionID]
+                    }
                 )
             }
         }

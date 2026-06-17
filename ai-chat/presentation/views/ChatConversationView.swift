@@ -10,6 +10,7 @@ import SwiftUI
 struct ChatConversationView: View {
     let viewModel: ChatViewModel
     let feedbackCenter: FeedbackCenter
+    let onFreshSessionCreated: (ChatSession.ID) -> Void
 
     @State private var draft = ""
     @State private var topicPendingFreshSession: LanguageTopic?
@@ -166,6 +167,7 @@ struct ChatConversationView: View {
 
         Task {
             if let sessionID = await viewModel.createSession(topic: topic) {
+                onFreshSessionCreated(sessionID)
                 await viewModel.startConversation(in: sessionID)
             }
         }
@@ -177,6 +179,7 @@ struct ChatConversationView: View {
 
         Task {
             if let sessionID = await viewModel.createSession(rolePlayScenario: scenario) {
+                onFreshSessionCreated(sessionID)
                 await viewModel.startConversation(in: sessionID)
             }
         }

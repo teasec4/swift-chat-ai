@@ -56,11 +56,13 @@ struct ChatSessionDestinationView: View {
     let viewModel: ChatViewModel
     let sessionID: ChatSession.ID
     let feedbackCenter: FeedbackCenter
+    let onFreshSessionCreated: (ChatSession.ID) -> Void
 
     var body: some View {
         ChatConversationView(
             viewModel: viewModel,
-            feedbackCenter: feedbackCenter
+            feedbackCenter: feedbackCenter,
+            onFreshSessionCreated: onFreshSessionCreated
         )
             .task(id: sessionID) {
                 await viewModel.selectSession(sessionID)
