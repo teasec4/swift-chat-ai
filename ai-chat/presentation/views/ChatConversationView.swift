@@ -25,7 +25,6 @@ struct ChatConversationView: View {
                 ChatTranscriptView(
                     messages: viewModel.messages,
                     isResponding: viewModel.isSelectedSessionResponding,
-                    partialResponse: viewModel.selectedPartialResponse,
                     feedbackCenter: feedbackCenter
                 )
                     .safeAreaInset(edge: .bottom, spacing: 0) {

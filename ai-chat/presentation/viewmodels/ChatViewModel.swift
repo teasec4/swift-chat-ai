@@ -16,7 +16,6 @@ final class ChatViewModel {
     private(set) var selectedSessionID: ChatSession.ID?
     private(set) var isLoading = false
     private(set) var respondingSessionIDs: Set<ChatSession.ID> = []
-    private(set) var partialResponsesBySessionID: [ChatSession.ID: String] = [:]
     private(set) var errorNoticesBySessionID: [ChatSession.ID: ChatErrorNotice] = [:]
     private(set) var generalErrorNotice: ChatErrorNotice?
 
@@ -61,17 +60,6 @@ final class ChatViewModel {
     var selectedSessionError: ChatErrorNotice? {
         guard let selectedSessionID else { return generalErrorNotice }
         return errorNoticesBySessionID[selectedSessionID]
-    }
-
-    var selectedPartialResponse: String? {
-        guard let selectedSessionID,
-              let partialResponse = partialResponsesBySessionID[selectedSessionID],
-              partialResponse.isEmpty == false
-        else {
-            return nil
-        }
-
-        return partialResponse
     }
 
     func load() async {
@@ -388,28 +376,9 @@ final class ChatViewModel {
         let correctionTarget = correctionTargetMessageContent(for: failedRequest, in: context)
         let systemPrompt = systemPrompt(for: sessionID)
         let task = Task {
-            var completedResponse: AssistantResponse?
-
-            for try await event in chatService.responseEvents(for: context, systemPrompt: systemPrompt) {
-                try Task.checkCancellation()
-
-                switch event {
-                case let .partial(content):
-                    await MainActor.run {
-                        partialResponsesBySessionID[sessionID] = content
-                    }
-                case let .completed(response):
-                    completedResponse = response.keepingCorrections(for: correctionTarget)
-                }
-            }
-
+            let response = try await chatService.response(for: context, systemPrompt: systemPrompt)
             try Task.checkCancellation()
-
-            guard let completedResponse else {
-                throw ChatResponseStreamError.missingCompletedResponse
-            }
-
-            return completedResponse
+            return response.keepingCorrections(for: correctionTarget)
         }
         responseTasksBySessionID[sessionID] = task
         respondingSessionIDs.insert(sessionID)
@@ -470,7 +439,6 @@ final class ChatViewModel {
     private func clearResponseTask(for sessionID: ChatSession.ID) {
         responseTasksBySessionID[sessionID] = nil
         respondingSessionIDs.remove(sessionID)
-        partialResponsesBySessionID[sessionID] = nil
     }
 
     private func showError(
