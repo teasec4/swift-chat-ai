@@ -23,7 +23,7 @@ struct AppDependencies {
         return AppDependencies(
             chatStore: SwiftDataChatStore(modelContext: ModelContext(container)),
             chatService: DeepSeekChatService(configuration: serviceConfiguration),
-            feedbackStore: UserDefaultsFeedbackStore(),
+            feedbackStore: SwiftDataFeedbackStore(modelContext: ModelContext(container)),
             chatConfiguration: chatConfiguration,
             modelContainer: container
         )
@@ -37,7 +37,7 @@ struct AppDependencies {
         return AppDependencies(
             chatStore: store,
             chatService: PreviewChatService(),
-            feedbackStore: UserDefaultsFeedbackStore(),
+            feedbackStore: SwiftDataFeedbackStore(modelContext: ModelContext(container)),
             chatConfiguration: chatConfiguration,
             modelContainer: container
         )
@@ -46,7 +46,8 @@ struct AppDependencies {
     private static func makeModelContainer(isStoredInMemoryOnly: Bool) throws -> ModelContainer {
         let schema = Schema([
             ChatSessionRecord.self,
-            ChatMessageRecord.self
+            ChatMessageRecord.self,
+            FeedbackItemRecord.self
         ])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: isStoredInMemoryOnly)
 

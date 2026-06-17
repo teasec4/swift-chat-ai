@@ -7,6 +7,7 @@
 
 import Foundation
 import Observation
+import SwiftData
 
 @MainActor
 protocol FeedbackStoring: AnyObject {
@@ -15,31 +16,51 @@ protocol FeedbackStoring: AnyObject {
 }
 
 @MainActor
-final class UserDefaultsFeedbackStore: FeedbackStoring {
-    private let defaults: UserDefaults
-    private let storageKey: String
+final class SwiftDataFeedbackStore: FeedbackStoring {
+    private let modelContext: ModelContext
 
-    init(
-        defaults: UserDefaults = .standard,
-        storageKey: String = "savedFeedbackItems"
-    ) {
-        self.defaults = defaults
-        self.storageKey = storageKey
+    init(modelContext: ModelContext) {
+        self.modelContext = modelContext
     }
 
     func fetchItems() -> [FeedbackItem] {
-        guard let data = defaults.data(forKey: storageKey),
-              let items = try? JSONDecoder().decode([FeedbackItem].self, from: data)
-        else {
-            return []
-        }
+        let descriptor = FetchDescriptor<FeedbackItemRecord>(
+            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+        )
 
-        return items.sorted { $0.createdAt > $1.createdAt }
+        return ((try? modelContext.fetch(descriptor)) ?? [])
+            .map(FeedbackItem.init(record:))
     }
 
     func saveItems(_ items: [FeedbackItem]) {
-        guard let data = try? JSONEncoder().encode(items) else { return }
-        defaults.set(data, forKey: storageKey)
+        let existingRecords = fetchRecords()
+        let itemsByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+
+        for record in existingRecords where itemsByID[record.id] == nil {
+            modelContext.delete(record)
+        }
+
+        for item in items {
+            if let record = existingRecords.first(where: { $0.id == item.id }) {
+                record.update(from: item)
+            } else {
+                modelContext.insert(
+                    FeedbackItemRecord(
+                        id: item.id,
+                        correction: item.correction,
+                        sourceMessageID: item.sourceMessageID,
+                        createdAt: item.createdAt
+                    )
+                )
+            }
+        }
+
+        try? modelContext.save()
+    }
+
+    private func fetchRecords() -> [FeedbackItemRecord] {
+        let descriptor = FetchDescriptor<FeedbackItemRecord>()
+        return (try? modelContext.fetch(descriptor)) ?? []
     }
 }
 
