@@ -12,10 +12,7 @@ struct RolePlayTabView: View {
     let feedbackCenter: FeedbackCenter
 
     @State private var path: [ChatSession.ID] = []
-    @State private var pendingNetworkLaunch: RolePlayLaunchAction?
-    @State private var networkErrorMessage: String?
     @State private var isShowingCustomScenarioOverlay = false
-    @State private var isPreparingNetworkAccess = false
 
     private let columns = [
         GridItem(.adaptive(minimum: 150), spacing: 12)
@@ -31,7 +28,6 @@ struct RolePlayTabView: View {
                         CreateRolePlayScenarioCardView()
                     }
                     .buttonStyle(.plain)
-                    .disabled(isPreparingNetworkAccess)
 
                     ForEach(viewModel.rolePlayScenarios) { scenario in
                         Button {
@@ -40,20 +36,12 @@ struct RolePlayTabView: View {
                             RolePlayScenarioCardView(scenario: scenario)
                         }
                         .buttonStyle(.plain)
-                        .disabled(isPreparingNetworkAccess)
                     }
                 }
                 .padding(16)
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Role Play")
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if isPreparingNetworkAccess {
-                    PreparingRolePlayNetworkAccessView()
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 8)
-                }
-            }
             .navigationDestination(for: ChatSession.ID.self) { sessionID in
                 ChatSessionDestinationView(
                     viewModel: viewModel,
@@ -73,96 +61,23 @@ struct RolePlayTabView: View {
                 onCreate: handleCustomScenarioCreate
             )
         }
-        .confirmationDialog(
-            "Allow Network Access?",
-            isPresented: isShowingNetworkApprovalDialog,
-            titleVisibility: .visible,
-            presenting: pendingNetworkLaunch
-        ) { launch in
-            Button("Allow and Continue") {
-                pendingNetworkLaunch = nil
-                viewModel.approveNetworkAccess()
-                start(launch)
-            }
-
-            Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text("Role-play conversations use the network to contact the language model.")
-        }
-        .alert(
-            "Network Unavailable",
-            isPresented: isShowingNetworkErrorAlert
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(networkErrorMessage ?? "Network access is unavailable.")
-        }
-    }
-
-    private var isShowingNetworkApprovalDialog: Binding<Bool> {
-        Binding {
-            pendingNetworkLaunch != nil
-        } set: { isPresented in
-            if isPresented == false {
-                pendingNetworkLaunch = nil
-            }
-        }
-    }
-
-    private var isShowingNetworkErrorAlert: Binding<Bool> {
-        Binding {
-            networkErrorMessage != nil
-        } set: { isPresented in
-            if isPresented == false {
-                networkErrorMessage = nil
-            }
-        }
     }
 
     private func handleScenarioTap(_ scenario: RolePlayScenario) {
-        prepare(.open(scenario))
+        start(.open(scenario))
     }
 
     private func handleCustomScenarioCreate(_ scenario: RolePlayScenario) {
         isShowingCustomScenarioOverlay = false
-        prepare(.create(scenario))
-    }
-
-    private func prepare(_ launch: RolePlayLaunchAction) {
-        guard viewModel.hasApprovedNetworkAccess else {
-            pendingNetworkLaunch = launch
-            return
-        }
-
-        start(launch)
+        start(.create(scenario))
     }
 
     private func start(_ launch: RolePlayLaunchAction) {
-        guard isPreparingNetworkAccess == false else { return }
-
         Task {
-            isPreparingNetworkAccess = true
-            defer { isPreparingNetworkAccess = false }
-
-            do {
-                try await viewModel.prepareForNetworkedChat()
-
-                if let sessionID = await sessionID(for: launch) {
-                    path = [sessionID]
-                    await viewModel.startConversation(in: sessionID)
-                }
-            } catch {
-                networkErrorMessage = errorMessage(for: error)
+            if let sessionID = await sessionID(for: launch) {
+                path = [sessionID]
+                await viewModel.startConversation(in: sessionID)
             }
-        }
-    }
-
-    private func errorMessage(for error: Error) -> String {
-        switch error {
-        case let localizedError as LocalizedError:
-            localizedError.errorDescription ?? "Network access is unavailable."
-        default:
-            "Network access is unavailable."
         }
     }
 
@@ -326,30 +241,5 @@ private struct RolePlayScenarioCardView: View {
                 .strokeBorder(.quaternary, lineWidth: 1)
         }
         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-}
-
-private struct PreparingRolePlayNetworkAccessView: View {
-    var body: some View {
-        HStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-
-            Text("Preparing role play...")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            Spacer()
-        }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 12)
-        .background(
-            Color(.secondarySystemGroupedBackground),
-            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(.quaternary, lineWidth: 1)
-        }
     }
 }

@@ -10,7 +10,6 @@ import Foundation
 struct DeepSeekChatService: ChatServing {
     struct Configuration: Hashable, Sendable {
         let endpoint: URL
-        let availabilityProbeURL: URL
         let model: String
         let temperature: Double
         let timeoutInterval: TimeInterval
@@ -18,14 +17,12 @@ struct DeepSeekChatService: ChatServing {
 
         init(
             endpoint: URL,
-            availabilityProbeURL: URL,
             model: String,
             temperature: Double,
             timeoutInterval: TimeInterval = 60,
             streamsStructuredResponses: Bool = false
         ) {
             self.endpoint = endpoint
-            self.availabilityProbeURL = availabilityProbeURL
             self.model = model
             self.temperature = temperature
             self.timeoutInterval = timeoutInterval
@@ -34,7 +31,6 @@ struct DeepSeekChatService: ChatServing {
 
         nonisolated static let live = Configuration(
             endpoint: URL(string: "https://api.deepseek.com/v1/chat/completions")!,
-            availabilityProbeURL: URL(string: "https://api.deepseek.com")!,
             model: "deepseek-v4-flash",
             temperature: 0.7
         )

@@ -30,7 +30,6 @@ struct AIChatApp: App {
                 viewModel: ChatViewModel(
                     chatStore: dependencies.chatStore,
                     chatService: dependencies.chatService,
-                    networkAccessAuthorizer: dependencies.networkAccessAuthorizer,
                     configuration: dependencies.chatConfiguration
                 ),
                 feedbackCenter: feedbackCenter

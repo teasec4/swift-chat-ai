@@ -12,9 +12,6 @@ struct HomeTabView: View {
     let feedbackCenter: FeedbackCenter
 
     @State private var path: [ChatSession.ID] = []
-    @State private var pendingNetworkTopic: LanguageTopic?
-    @State private var networkErrorMessage: String?
-    @State private var isPreparingNetworkAccess = false
 
     private let columns = [
         GridItem(.adaptive(minimum: 150), spacing: 12)
@@ -31,20 +28,12 @@ struct HomeTabView: View {
                             LanguageTopicCardView(topic: topic)
                         }
                         .buttonStyle(.plain)
-                        .disabled(isPreparingNetworkAccess)
                     }
                 }
                 .padding(16)
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Home")
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if isPreparingNetworkAccess {
-                    PreparingNetworkAccessView()
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 8)
-                }
-            }
             .navigationDestination(for: ChatSession.ID.self) { sessionID in
                 ChatSessionDestinationView(
                     viewModel: viewModel,
@@ -56,86 +45,18 @@ struct HomeTabView: View {
                 )
             }
         }
-        .confirmationDialog(
-            "Allow Network Access?",
-            isPresented: isShowingNetworkApprovalDialog,
-            titleVisibility: .visible,
-            presenting: pendingNetworkTopic
-        ) { topic in
-            Button("Allow and Continue") {
-                viewModel.approveNetworkAccess()
-                openSession(with: topic)
-            }
-
-            Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text("AI conversations use the network to contact the language model.")
-        }
-        .alert(
-            "Network Unavailable",
-            isPresented: isShowingNetworkErrorAlert
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(networkErrorMessage ?? "Network access is unavailable.")
-        }
-    }
-
-    private var isShowingNetworkApprovalDialog: Binding<Bool> {
-        Binding {
-            pendingNetworkTopic != nil
-        } set: { isPresented in
-            if isPresented == false {
-                pendingNetworkTopic = nil
-            }
-        }
-    }
-
-    private var isShowingNetworkErrorAlert: Binding<Bool> {
-        Binding {
-            networkErrorMessage != nil
-        } set: { isPresented in
-            if isPresented == false {
-                networkErrorMessage = nil
-            }
-        }
     }
 
     private func handleTopicTap(_ topic: LanguageTopic) {
-        guard viewModel.hasApprovedNetworkAccess else {
-            pendingNetworkTopic = topic
-            return
-        }
-
         openSession(with: topic)
     }
 
     private func openSession(with topic: LanguageTopic) {
-        guard isPreparingNetworkAccess == false else { return }
-
         Task {
-            isPreparingNetworkAccess = true
-            defer { isPreparingNetworkAccess = false }
-
-            do {
-                try await viewModel.prepareForNetworkedChat()
-
-                if let sessionID = await viewModel.openSession(for: topic) {
-                    path = [sessionID]
-                    await viewModel.startConversation(in: sessionID)
-                }
-            } catch {
-                networkErrorMessage = errorMessage(for: error)
+            if let sessionID = await viewModel.openSession(for: topic) {
+                path = [sessionID]
+                await viewModel.startConversation(in: sessionID)
             }
-        }
-    }
-
-    private func errorMessage(for error: Error) -> String {
-        switch error {
-        case let localizedError as LocalizedError:
-            localizedError.errorDescription ?? "Network access is unavailable."
-        default:
-            "Network access is unavailable."
         }
     }
 }
@@ -173,30 +94,5 @@ private struct LanguageTopicCardView: View {
                 .strokeBorder(.quaternary, lineWidth: 1)
         }
         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-}
-
-private struct PreparingNetworkAccessView: View {
-    var body: some View {
-        HStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-
-            Text("Preparing network access...")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            Spacer()
-        }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 12)
-        .background(
-            Color(.secondarySystemGroupedBackground),
-            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(.quaternary, lineWidth: 1)
-        }
     }
 }
