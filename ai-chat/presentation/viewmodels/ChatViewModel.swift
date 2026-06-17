@@ -403,46 +403,41 @@ final class ChatViewModel {
         let correctionTarget = correctionTargetMessageContent(for: failedRequest, in: context)
         let systemPrompt = systemPrompt(for: sessionID)
         let task = Task {
-            var emptyResponseRetriesRemaining = 1
+            do {
+                var completedResponse: AssistantResponse?
 
-            while true {
-                do {
-                    var completedResponse: AssistantResponse?
-
-                    for try await event in chatService.responseEvents(for: context, systemPrompt: systemPrompt) {
-                        try Task.checkCancellation()
-
-                        switch event {
-                        case let .partial(content):
-                            await MainActor.run {
-                                partialResponsesBySessionID[sessionID] = content
-                            }
-                        case let .completed(response):
-                            completedResponse = response.keepingCorrections(for: correctionTarget)
-                        }
-                    }
-
+                for try await event in chatService.responseEvents(for: context, systemPrompt: systemPrompt) {
                     try Task.checkCancellation()
 
-                    guard let completedResponse else {
-                        throw ChatResponseStreamError.missingCompletedResponse
-                    }
-
-                    return completedResponse
-                } catch ChatServiceError.emptyResponse where emptyResponseRetriesRemaining > 0 {
-                    emptyResponseRetriesRemaining -= 1
-                    await MainActor.run {
-                        partialResponsesBySessionID[sessionID] = nil
-                    }
-
-                    do {
-                        return try await chatService
-                            .response(for: context, systemPrompt: systemPrompt)
-                            .keepingCorrections(for: correctionTarget)
-                    } catch ChatServiceError.emptyResponse {
-                        continue
+                    switch event {
+                    case let .partial(content):
+                        await MainActor.run {
+                            partialResponsesBySessionID[sessionID] = content
+                        }
+                    case let .completed(response):
+                        completedResponse = response.keepingCorrections(for: correctionTarget)
                     }
                 }
+
+                try Task.checkCancellation()
+
+                guard let completedResponse else {
+                    throw ChatResponseStreamError.missingCompletedResponse
+                }
+
+                return completedResponse
+            } catch {
+                guard Self.shouldFallbackToCompletedResponse(after: error) else {
+                    throw error
+                }
+
+                await MainActor.run {
+                    partialResponsesBySessionID[sessionID] = nil
+                }
+
+                return try await chatService
+                    .response(for: context, systemPrompt: systemPrompt)
+                    .keepingCorrections(for: correctionTarget)
             }
         }
         responseTasksBySessionID[sessionID] = task
@@ -478,6 +473,18 @@ final class ChatViewModel {
         case .latestMessages:
             context.last { $0.role == .user }?.content
         }
+    }
+
+    nonisolated private static func shouldFallbackToCompletedResponse(after error: Error) -> Bool {
+        if let serviceError = error as? ChatServiceError {
+            return serviceError == .emptyResponse
+        }
+
+        if let streamError = error as? ChatResponseStreamError {
+            return streamError == .missingCompletedResponse
+        }
+
+        return false
     }
 
     private func appendAssistantResponse(_ assistantResponse: AssistantResponse, to sessionID: ChatSession.ID) {

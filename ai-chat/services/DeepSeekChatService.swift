@@ -14,19 +14,22 @@ struct DeepSeekChatService: ChatServing {
         let model: String
         let temperature: Double
         let timeoutInterval: TimeInterval
+        let streamsStructuredResponses: Bool
 
         init(
             endpoint: URL,
             availabilityProbeURL: URL,
             model: String,
             temperature: Double,
-            timeoutInterval: TimeInterval = 60
+            timeoutInterval: TimeInterval = 60,
+            streamsStructuredResponses: Bool = false
         ) {
             self.endpoint = endpoint
             self.availabilityProbeURL = availabilityProbeURL
             self.model = model
             self.temperature = temperature
             self.timeoutInterval = timeoutInterval
+            self.streamsStructuredResponses = streamsStructuredResponses
         }
 
         nonisolated static let live = Configuration(
@@ -58,6 +61,13 @@ struct DeepSeekChatService: ChatServing {
             streamsResponse: false
         )
 
+        return try await Self.decodedResponse(from: request, urlSession: urlSession)
+    }
+
+    nonisolated private static func decodedResponse(
+        from request: URLRequest,
+        urlSession: URLSession
+    ) async throws -> AssistantResponse {
         let (data, response) = try await urlSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw ChatServiceError.invalidResponse
@@ -86,6 +96,16 @@ struct DeepSeekChatService: ChatServing {
         let apiKey = apiKey
         let configuration = configuration
         let urlSession = urlSession
+
+        guard configuration.streamsStructuredResponses else {
+            return Self.completedResponseEvents(
+                for: messages,
+                systemPrompt: systemPrompt,
+                apiKey: apiKey,
+                configuration: configuration,
+                urlSession: urlSession
+            )
+        }
 
         return AsyncThrowingStream { continuation in
             let task = Task {
@@ -117,6 +137,37 @@ struct DeepSeekChatService: ChatServing {
                     if let event = try streamParser.finishIfNeeded() {
                         continuation.yield(event)
                     }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
+    nonisolated private static func completedResponseEvents(
+        for messages: [ChatMessage],
+        systemPrompt: String,
+        apiKey: String,
+        configuration: Configuration,
+        urlSession: URLSession
+    ) -> AsyncThrowingStream<ChatResponseEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let request = try Self.makeURLRequest(
+                        from: messages,
+                        systemPrompt: systemPrompt,
+                        apiKey: apiKey,
+                        configuration: configuration,
+                        streamsResponse: false
+                    )
+                    let response = try await Self.decodedResponse(from: request, urlSession: urlSession)
+                    continuation.yield(.completed(response))
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -180,17 +231,18 @@ struct DeepSeekChatService: ChatServing {
     ) -> ChatRequest {
         ChatRequest(
             model: configuration.model,
-            messages: [
-                ChatRequest.Message(role: "system", content: systemPrompt),
-                ChatRequest.Message(role: "system", content: AssistantResponse.responseInstructions)
-            ] + messages.map {
-                ChatRequest.Message(role: $0.role.rawValue, content: $0.content)
-            },
+            messages: Self.requestContextMapper
+                .requestMessages(from: messages, systemPrompt: systemPrompt)
+                .map(ChatRequest.Message.init(contextMessage:)),
             temperature: configuration.temperature,
             responseFormat: .jsonObject,
             stream: streamsResponse ? true : nil
         )
     }
+
+    nonisolated private static let requestContextMapper = ChatRequestContextMapper(
+        assistantHistoryEncoding: .structuredResponseJSON
+    )
 }
 
 enum ChatServiceError: LocalizedError, Equatable {
@@ -251,8 +303,13 @@ nonisolated private struct ChatRequest: Encodable, Sendable {
     let stream: Bool?
 
     nonisolated struct Message: Codable, Sendable {
-        let role: String
+        let role: ChatRequestContextMessage.Role
         let content: String
+
+        nonisolated init(contextMessage: ChatRequestContextMessage) {
+            self.role = contextMessage.role
+            self.content = contextMessage.content
+        }
     }
 
     nonisolated struct ResponseFormat: Codable, Sendable {
@@ -356,10 +413,6 @@ nonisolated struct DeepSeekStreamingResponseParser: Sendable {
         if let response = responseParser.structuredResponse(from: accumulatedContent),
            response.reply.isEmpty == false {
             return .completed(response)
-        }
-
-        if let partialReply = lastPartialReply.trimmedNonEmpty {
-            return .completed(AssistantResponse(reply: partialReply))
         }
 
         if let response = responseParser.response(from: accumulatedContent),
