@@ -13,13 +13,34 @@ struct MessageCorrectionListView: View {
     var sourceText: String?
     let feedbackCenter: FeedbackCenter
 
+    @State private var collapseAllCommand = CorrectionCollapseCommand()
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if corrections.count > 1 {
+                HStack {
+                    Spacer(minLength: 0)
+
+                    Button {
+                        withAnimation(.snappy(duration: 0.18)) {
+                            collapseAllCommand = CorrectionCollapseCommand()
+                        }
+                    } label: {
+                        Label("Collapse all", systemImage: "rectangle.compress.vertical")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel("Collapse all corrections")
+                }
+            }
+
             ForEach(Array(corrections.enumerated()), id: \.offset) { index, correction in
                 MessageCorrectionCardView(
                     messageID: messageID,
                     correction: correction,
                     sourceText: sourceText,
+                    collapseAllCommand: collapseAllCommand,
                     storageKey: "chat.correction.\(messageID.uuidString).\(index).collapsed",
                     feedbackCenter: feedbackCenter
                 )
@@ -33,6 +54,7 @@ private struct MessageCorrectionCardView: View {
     let messageID: ChatMessage.ID
     let correction: MessageCorrection
     let sourceText: String?
+    let collapseAllCommand: CorrectionCollapseCommand
     let feedbackCenter: FeedbackCenter
 
     @AppStorage private var isCollapsed: Bool
@@ -41,12 +63,14 @@ private struct MessageCorrectionCardView: View {
         messageID: ChatMessage.ID,
         correction: MessageCorrection,
         sourceText: String?,
+        collapseAllCommand: CorrectionCollapseCommand,
         storageKey: String,
         feedbackCenter: FeedbackCenter
     ) {
         self.messageID = messageID
         self.correction = correction
         self.sourceText = sourceText
+        self.collapseAllCommand = collapseAllCommand
         self.feedbackCenter = feedbackCenter
         self._isCollapsed = AppStorage(wrappedValue: false, storageKey)
     }
@@ -121,6 +145,9 @@ private struct MessageCorrectionCardView: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(.quaternary, lineWidth: 1)
         }
+        .onChange(of: collapseAllCommand) { _, _ in
+            isCollapsed = true
+        }
     }
 
     private var title: String {
@@ -147,6 +174,10 @@ private struct MessageCorrectionCardView: View {
     private var isSaved: Bool {
         feedbackCenter.contains(correction: correction, sourceMessageID: messageID)
     }
+}
+
+private struct CorrectionCollapseCommand: Equatable {
+    private let id = UUID()
 }
 
 private extension String {
