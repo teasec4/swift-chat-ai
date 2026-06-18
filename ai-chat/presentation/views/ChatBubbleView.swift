@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ChatBubbleView: View {
     let message: ChatMessage
+    var correctionSourceText: String? = nil
     let feedbackCenter: FeedbackCenter
 
     var body: some View {
@@ -42,6 +43,7 @@ struct ChatBubbleView: View {
                 MessageCorrectionListView(
                     messageID: message.id,
                     corrections: message.corrections,
+                    sourceText: correctionSourceText,
                     feedbackCenter: feedbackCenter
                 )
             }

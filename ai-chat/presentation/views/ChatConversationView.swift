@@ -141,10 +141,10 @@ struct ChatConversationView: View {
         guard viewModel.canSend(content) else { return }
 
         draft = ""
+        isInputFocused = false
 
         Task {
             await viewModel.sendMessage(content)
-            isInputFocused = true
         }
     }
 

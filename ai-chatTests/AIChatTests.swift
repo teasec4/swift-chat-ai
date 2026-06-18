@@ -178,6 +178,52 @@ final class AIChatTests: XCTestCase {
         XCTAssertEqual(sentMessages.map(\.content), ["Two", "Three", "Question"])
     }
 
+    func testSendMessageUsesContextCharacterBudget() async {
+        let recorder = MessageRecorder()
+        let session = ChatSession(title: "Existing chat")
+        let store = InMemoryChatStore(
+            sessions: [session],
+            messagesBySessionID: [
+                session.id: [
+                    ChatMessage(
+                        content: String(repeating: "Older details. ", count: 12),
+                        role: .user,
+                        createdAt: Date(timeIntervalSince1970: 1)
+                    ),
+                    ChatMessage(
+                        content: "What do you think?",
+                        role: .assistant,
+                        createdAt: Date(timeIntervalSince1970: 2)
+                    )
+                ]
+            ]
+        )
+        let sut = ChatViewModel(
+            chatStore: store,
+            chatService: RecordingChatService(recorder: recorder, response: "Good answer"),
+            configuration: ChatFeatureConfiguration(
+                maxContextMessages: 12,
+                maxContextCharacters: 25
+            )
+        )
+
+        await sut.load()
+        await sut.sendMessage("Yes")
+
+        let sentMessages = await recorder.messages()
+        XCTAssertEqual(sentMessages.map(\.content), ["What do you think?", "Yes"])
+    }
+
+    func testContextPolicyKeepsLatestMessageWhenItExceedsCharacterBudget() {
+        let latestMessage = ChatMessage(
+            content: String(repeating: "Long latest message. ", count: 8),
+            role: .user
+        )
+        let policy = ChatContextPolicy(maxMessages: 4, maxCharacters: 10)
+
+        XCTAssertEqual(policy.window(from: [latestMessage]), [latestMessage])
+    }
+
     func testTopicSessionPassesTopicPromptToService() async {
         let recorder = MessageRecorder()
         let topic = LanguageTopic.all[1]
@@ -511,6 +557,99 @@ final class AIChatTests: XCTestCase {
 
         XCTAssertEqual(response?.reply, "Sure, let's keep practicing.")
         XCTAssertEqual(response?.corrections, [])
+    }
+
+    func testCorrectionInlineDiffHighlightsInsertedArticleOnly() {
+        let segments = CorrectionInlineDiff.segments(
+            original: "I went to store",
+            corrected: "I went to the store"
+        )
+
+        XCTAssertEqual(
+            segments,
+            [
+                CorrectionInlineDiffSegment(text: "I went to", style: .unchanged),
+                CorrectionInlineDiffSegment(text: " the", style: .inserted),
+                CorrectionInlineDiffSegment(text: " store", style: .unchanged)
+            ]
+        )
+    }
+
+    func testCorrectionInlineDiffExpandsFragmentCorrectionInsideSourceText() {
+        let segments = CorrectionInlineDiff.segments(
+            for: MessageCorrection(original: "store", corrected: "the store"),
+            sourceText: "Yesterday I went to store after work"
+        )
+
+        XCTAssertEqual(
+            segments,
+            [
+                CorrectionInlineDiffSegment(text: "Yesterday I went to", style: .unchanged),
+                CorrectionInlineDiffSegment(text: " the", style: .inserted),
+                CorrectionInlineDiffSegment(text: " store after work", style: .unchanged)
+            ]
+        )
+    }
+
+    func testCorrectionInlineDiffUsesWordBoundariesInSourceText() {
+        let segments = CorrectionInlineDiff.segments(
+            for: MessageCorrection(original: "a", corrected: "the"),
+            sourceText: "I have a cat"
+        )
+
+        XCTAssertEqual(
+            segments,
+            [
+                CorrectionInlineDiffSegment(text: "I have", style: .unchanged),
+                CorrectionInlineDiffSegment(text: " a", style: .removed),
+                CorrectionInlineDiffSegment(text: " the", style: .inserted),
+                CorrectionInlineDiffSegment(text: " cat", style: .unchanged)
+            ]
+        )
+    }
+
+    func testCorrectionInlineDiffHighlightsReplacementLocally() {
+        let segments = CorrectionInlineDiff.segments(
+            original: "I very like hiking",
+            corrected: "I really like hiking"
+        )
+
+        XCTAssertEqual(
+            segments,
+            [
+                CorrectionInlineDiffSegment(text: "I", style: .unchanged),
+                CorrectionInlineDiffSegment(text: " very", style: .removed),
+                CorrectionInlineDiffSegment(text: " really", style: .inserted),
+                CorrectionInlineDiffSegment(text: " like hiking", style: .unchanged)
+            ]
+        )
+    }
+
+    func testRequestContextMapperUsesPlainAssistantRepliesInHistory() {
+        let correction = MessageCorrection(
+            original: "I am agree",
+            corrected: "I agree",
+            type: "grammar",
+            explanation: "Agree is already a verb."
+        )
+        let messages = [
+            ChatMessage(content: "I am agree", role: .user),
+            ChatMessage(
+                content: "Good correction. What do you think?",
+                role: .assistant,
+                corrections: [correction]
+            )
+        ]
+
+        let context = ChatRequestContextMapper().requestMessages(
+            from: messages,
+            systemPrompt: "System prompt",
+            responseInstructions: "Return JSON."
+        )
+
+        XCTAssertEqual(context.map(\.role), [.system, .system, .user, .assistant])
+        XCTAssertEqual(context.last?.content, "Good correction. What do you think?")
+        XCTAssertFalse(context.last?.content.contains("corrections") ?? true)
     }
 
     private func makeViewModel(

@@ -16,9 +16,10 @@ struct ChatTranscriptView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(messages) { message in
+                    ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                         ChatBubbleView(
                             message: message,
+                            correctionSourceText: correctionSourceText(forMessageAt: index),
                             feedbackCenter: feedbackCenter
                         )
                             .id(message.id)
@@ -50,6 +51,11 @@ struct ChatTranscriptView: View {
     }
 
     private static let loadingBubbleID = "assistant-loading-bubble"
+
+    private func correctionSourceText(forMessageAt index: Int) -> String? {
+        guard messages[index].role == .assistant else { return nil }
+        return messages.prefix(index).last { $0.role == .user }?.content
+    }
 
     private func scheduleScrollToBottom(
         with proxy: ScrollViewProxy,

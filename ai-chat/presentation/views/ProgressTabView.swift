@@ -110,23 +110,7 @@ private struct FeedbackItemRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if item.correction.original.isEmpty == false {
-                FeedbackTextRow(
-                    title: "Original",
-                    text: item.correction.original,
-                    color: .red,
-                    isStrikethrough: true
-                )
-            }
-
-            if item.correction.corrected.isEmpty == false {
-                FeedbackTextRow(
-                    title: "Better",
-                    text: item.correction.corrected,
-                    color: .green,
-                    isStrikethrough: false
-                )
-            }
+            CorrectionTextRowsView(correction: item.correction)
 
             if let explanation = item.correction.explanation {
                 Text(explanation)
@@ -147,28 +131,6 @@ private struct FeedbackItemRow: View {
         time: .shortened,
         locale: Locale(identifier: "en_US")
     )
-}
-
-private struct FeedbackTextRow: View {
-    let title: String
-    let text: String
-    let color: Color
-    let isStrikethrough: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            Text(text)
-                .font(.subheadline)
-                .foregroundStyle(color)
-                .strikethrough(isStrikethrough, color: color)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
 }
 
 private struct EmptyFeedbackCategoryRow: View {

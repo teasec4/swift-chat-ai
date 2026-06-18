@@ -324,7 +324,7 @@ final class ChatViewModel {
 
     private func recentContext(for sessionID: ChatSession.ID) throws -> [ChatMessage] {
         let storedMessages = try chatStore.fetchMessages(for: sessionID)
-        return Array(storedMessages.suffix(configuration.maxContextMessages))
+        return configuration.contextPolicy.window(from: storedMessages)
     }
 
     private func makeContext(for failedRequest: FailedAssistantRequest, sessionID: ChatSession.ID) throws -> [ChatMessage] {

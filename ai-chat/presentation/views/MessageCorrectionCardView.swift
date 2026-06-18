@@ -10,6 +10,7 @@ import SwiftUI
 struct MessageCorrectionListView: View {
     let messageID: ChatMessage.ID
     let corrections: [MessageCorrection]
+    var sourceText: String?
     let feedbackCenter: FeedbackCenter
 
     var body: some View {
@@ -18,6 +19,7 @@ struct MessageCorrectionListView: View {
                 MessageCorrectionCardView(
                     messageID: messageID,
                     correction: correction,
+                    sourceText: sourceText,
                     storageKey: "chat.correction.\(messageID.uuidString).\(index).collapsed",
                     feedbackCenter: feedbackCenter
                 )
@@ -30,6 +32,7 @@ struct MessageCorrectionListView: View {
 private struct MessageCorrectionCardView: View {
     let messageID: ChatMessage.ID
     let correction: MessageCorrection
+    let sourceText: String?
     let feedbackCenter: FeedbackCenter
 
     @AppStorage private var isCollapsed: Bool
@@ -37,11 +40,13 @@ private struct MessageCorrectionCardView: View {
     init(
         messageID: ChatMessage.ID,
         correction: MessageCorrection,
+        sourceText: String?,
         storageKey: String,
         feedbackCenter: FeedbackCenter
     ) {
         self.messageID = messageID
         self.correction = correction
+        self.sourceText = sourceText
         self.feedbackCenter = feedbackCenter
         self._isCollapsed = AppStorage(wrappedValue: false, storageKey)
     }
@@ -97,23 +102,7 @@ private struct MessageCorrectionCardView: View {
                         .lineLimit(1)
                 }
             } else {
-                if correction.original.isEmpty == false {
-                    CorrectionTextRow(
-                        title: "Original",
-                        text: correction.original,
-                        color: .red,
-                        isStrikethrough: true
-                    )
-                }
-
-                if correction.corrected.isEmpty == false {
-                    CorrectionTextRow(
-                        title: "Better",
-                        text: correction.corrected,
-                        color: .green,
-                        isStrikethrough: false
-                    )
-                }
+                CorrectionTextRowsView(correction: correction, sourceText: sourceText)
 
                 if let explanation = correction.explanation {
                     Text(explanation)
@@ -157,28 +146,6 @@ private struct MessageCorrectionCardView: View {
 
     private var isSaved: Bool {
         feedbackCenter.contains(correction: correction, sourceMessageID: messageID)
-    }
-}
-
-private struct CorrectionTextRow: View {
-    let title: String
-    let text: String
-    let color: Color
-    let isStrikethrough: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            Text(text)
-                .font(.subheadline)
-                .foregroundStyle(color)
-                .strikethrough(isStrikethrough, color: color)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-        }
     }
 }
 
