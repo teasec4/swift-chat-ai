@@ -137,10 +137,6 @@ nonisolated private struct DiffToken: Hashable, Sendable {
 }
 
 private extension String {
-    nonisolated var trimmedNonEmpty: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
 
     nonisolated var diffTokens: [String] {
         split(whereSeparator: \.isWhitespace).map(String.init)

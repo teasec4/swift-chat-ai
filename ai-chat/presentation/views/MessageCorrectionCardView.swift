@@ -179,10 +179,3 @@ private struct MessageCorrectionCardView: View {
 private struct CorrectionCollapseCommand: Equatable {
     private let id = UUID()
 }
-
-private extension String {
-    var trimmedNonEmpty: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-}

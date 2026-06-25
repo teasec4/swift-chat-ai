@@ -67,7 +67,7 @@ struct DeepSeekChatService: ChatServing {
         }
 
         let chatResponse = try JSONDecoder().decode(ChatResponse.self, from: data)
-        guard let content = chatResponse.choices.first?.message.content.trimmedNonEmpty else {
+        guard let content = await chatResponse.choices.first?.message.content.trimmedNonEmpty else {
             throw ChatServiceError.emptyResponse
         }
 
@@ -135,26 +135,6 @@ struct DeepSeekChatService: ChatServing {
     nonisolated private static let requestContextMapper = ChatRequestContextMapper()
 }
 
-enum ChatServiceError: LocalizedError, Equatable {
-    case missingAPIKey
-    case invalidResponse
-    case emptyResponse
-    case httpFailure(statusCode: Int)
-
-    var errorDescription: String? {
-        switch self {
-        case .missingAPIKey:
-            "Add DEEPSEEK_API_KEY in Secrets.plist before sending messages."
-        case .invalidResponse:
-            "The AI service returned an invalid response."
-        case .emptyResponse:
-            "The AI service returned an empty answer."
-        case let .httpFailure(statusCode):
-            "The AI service returned HTTP \(statusCode)."
-        }
-    }
-}
-
 private extension DeepSeekChatService {
     nonisolated static func apiKeyFromBundle() -> String {
         if let value = Bundle.main.object(forInfoDictionaryKey: "DEEPSEEK_API_KEY") as? String,
@@ -185,59 +165,3 @@ private extension DeepSeekChatService {
     }
 }
 
-nonisolated private struct ChatRequest: Encodable, Sendable {
-    let model: String
-    let messages: [Message]
-    let temperature: Double
-    let responseFormat: ResponseFormat?
-
-    nonisolated struct Message: Codable, Sendable {
-        let role: ChatRequestContextMessage.Role
-        let content: String
-
-        nonisolated init(contextMessage: ChatRequestContextMessage) {
-            self.role = contextMessage.role
-            self.content = contextMessage.content
-        }
-    }
-
-    nonisolated struct ResponseFormat: Codable, Sendable {
-        let type: String
-
-        nonisolated static let jsonObject = ResponseFormat(type: "json_object")
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case model
-        case messages
-        case temperature
-        case responseFormat = "response_format"
-    }
-
-    nonisolated init(
-        model: String,
-        messages: [Message],
-        temperature: Double,
-        responseFormat: ResponseFormat? = nil
-    ) {
-        self.model = model
-        self.messages = messages
-        self.temperature = temperature
-        self.responseFormat = responseFormat
-    }
-}
-
-nonisolated private struct ChatResponse: Decodable, Sendable {
-    let choices: [Choice]
-
-    nonisolated struct Choice: Decodable, Sendable {
-        let message: ChatRequest.Message
-    }
-}
-
-private extension String {
-    nonisolated var trimmedNonEmpty: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-}
